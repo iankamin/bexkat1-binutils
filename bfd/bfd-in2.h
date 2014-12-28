@@ -2285,8 +2285,8 @@ enum bfd_architecture
 #define bfd_mach_avrxmega7 107
   bfd_arch_bfin,        /* ADI Blackfin */
 #define bfd_mach_bfin          1
-  bfd_arch_bexkat1,     /* Bexkat1 experimental CPU */
-#define bfd_mach_bexkat1	1
+  bfd_arch_bexkat1,    /* Bexkat 1 experimental */
+#define bfd_mach_bexkat1       1
   bfd_arch_cr16,       /* National Semiconductor CompactRISC (ie CR16). */
 #define bfd_mach_cr16          1
   bfd_arch_cr16c,       /* National Semiconductor CompactRISC. */
@@ -3119,6 +3119,8 @@ to compensate for the borrow when the low bits are added.  */
   BFD_RELOC_FT32_17,
   BFD_RELOC_FT32_18,
 
+/* Bexkat1 ELF relocations.  */
+  BFD_RELOC_BEXKAT_11,
 
 /* Fujitsu Frv Relocations.  */
   BFD_RELOC_FRV_LABEL16,
