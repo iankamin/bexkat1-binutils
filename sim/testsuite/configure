@@ -1835,6 +1835,10 @@ case "${target}" in
    avr*-*-*)
        sim_arch=avr
        ;;
+   bexkat1-*-*)
+       sim_arch=bexkat1
+       sim_testsuite=yes
+       ;;
    bfin-*-*)
        sim_arch=bfin
        ;;
