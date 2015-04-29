@@ -98,7 +98,7 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
       fpr(stream, "%s %%%d, 0x%08x", opcode->name, (iword >> 16) & 0x1f, imm32);
     if (opcode->args == 3)
       fpr(stream, "%s %%%d, %%%d, 0x%08x", opcode->name, (iword >> 16) & 0x1f,
-	  (iword >> 11) && 0x1f, imm32);
+	  (iword >> 11) & 0x1f, imm32);
     length = 8;
     break;
   case BEXKAT1_IMM:
