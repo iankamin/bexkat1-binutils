@@ -1,15 +1,28 @@
 ## COMMON_PRE_CONFIG_FRAG
 
-SIM_OBJS = interp.o
+dtbdir = @datadir@/gdb/dtb
 
-SIM_EXTRA_LIBS = -lm
+SIM_OBJS = interp.o sim-load.o sim-io.o sim-config.o sim-utils.o        \
+sim-options.o sim-module.o sim-core.o sim-endian.o sim-trace.o  \
+sim-engine.o sim-fpu.o sim-bits.o sim-profile.o sim-events.o \
+sim-memopt.o
+
+SIM_EXTRA_LIBS = -lm -lz
 SIM_EXTRA_CLEAN = bexkat1-clean
 SIM_EXTRA_INSTALL = install-dtb
+SIM_CFLAGS = -DDTB="\"$(dtbdir)/bexkat1-gdb.dtb\""
 
 ## COMMON_POST_CONFIG_FRAG
 
-all: interp.o
+all: interp.o bexkat1-gdb.dtb
 
 interp.o: interp.c
+
+bexkat1-gdb.dtb: bexkat1-gdb.dts
+	dtc -O dtb -o bexkat1-gdb.dtb ${srcdir}/bexkat1-gdb.dts
+
+install-dtb: bexkat1-gdb.dtb
+	$(SHELL) $(srcdir)/../../mkinstalldirs $(DESTDIR)$(dtbdir)
+	$(INSTALL_DATA) bexkat1-gdb.dtb $(DESTDIR)$(dtbdir)/bexkat1-gdb.dtb
 
 bexkat1-clean:

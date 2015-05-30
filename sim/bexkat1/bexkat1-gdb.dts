@@ -1,0 +1,51 @@
+/*
+ * GDB Simulator device tree.
+ *
+ * (C) Copyright 2009 Anthony Green
+ *
+ * Anthony Green <green@moxielogic.com>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 3 of
+ * the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
+/dts-v1/;
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	compatible = "gdb,bexkat1-elf-gdb";
+	model = "testing";
+	SSRAM: memory@00000000 {
+		device_type = "memory";
+		reg = < 0x00000000 0x04000 >;
+	} ;
+	ROM: memory@ffff0000 {
+		device_type = "memory";
+		reg = < 0xffff0000 0x10000 >;
+	} ;
+	chosen {
+		bootargs = "lpj=1000 console=earlyser0";
+	} ;
+	cpus {
+		#address-cells = <1>;
+		#cpus = <0x1>;
+		#size-cells = <0>;
+		bexkat1_0: cpu@0 {
+			compatible = "bexkat1,bexkat1-0.99";
+			device_type = "cpu";
+			model = "bexkat1,0.99";
+			reg = <0>;
+		} ;
+	} ;
+}  ;
