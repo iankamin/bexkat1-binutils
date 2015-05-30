@@ -92,10 +92,19 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
     else
       imm32 = bfd_getl32(buffer);
 
-    if (opcode->args == 1)
-      fpr(stream, "%s 0x%08x", opcode->name, imm32);
-    if (opcode->args == 2)
-      fpr(stream, "%s %%%d, 0x%08x", opcode->name, (iword >> 16) & 0x1f, imm32);
+    if (opcode->args == 1) {
+      fpr(stream, "%s ", opcode->name);
+      info->print_address_func((bfd_vma) imm32, info);
+    }
+    if (opcode->args == 2) {
+      if (!strcmp("ldi", opcode->name)) {
+	fpr(stream, "%s %%%d, 0x%08x", opcode->name,
+	    (iword >> 16) & 0x1f, imm32);
+      } else {
+	fpr(stream, "%s %%%d, ", opcode->name, (iword >> 16) & 0x1f);
+	info->print_address_func((bfd_vma) imm32, info);
+      }
+    }
     if (opcode->args == 3)
       fpr(stream, "%s %%%d, %%%d, 0x%08x", opcode->name, (iword >> 16) & 0x1f,
 	  (iword >> 11) & 0x1f, imm32);
