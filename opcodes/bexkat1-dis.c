@@ -54,6 +54,7 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
   bfd_byte buffer[6];
   unsigned int iword;
   int imm32;
+  short offset;
 
   stream = info->stream;
   fpr = info->fprintf_func; 
@@ -119,14 +120,21 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
     length = 4;
     break;
   case BEXKAT1_REGIND:
-    if (opcode->args == 2)
-      fpr(stream, "%s %d(%%%d)", opcode->name,
-  	  (short)(iword & 0x400 ? 0xf800 | (iword & 0x7ff) : iword & 0x7ff),
-	  (iword >> 11) & 0x1f);
-    if (opcode->args == 3)
-      fpr(stream, "%s %%%d, %d(%%%d)", opcode->name, (iword >> 16) & 0x1f,
-  	  (short)(iword & 0x400 ? 0xf800 | (iword & 0x7ff) : iword & 0x7ff),
-	  (iword >> 11) & 0x1f);
+    offset = (short)(iword & 0x400 ? 0xf800 | (iword & 0x7ff) : iword & 0x7ff);
+    if (opcode->args == 2) {
+      if (offset == 0)
+	fpr(stream, "%s (%%%d)", opcode->name, (iword >> 11) & 0x1f);
+      else
+	fpr(stream, "%s %d(%%%d)", opcode->name, offset, (iword >> 11) & 0x1f);
+    }
+    if (opcode->args == 3) {
+      if (offset == 0)
+	fpr(stream, "%s %%%d, (%%%d)", opcode->name, (iword >> 16) & 0x1f,
+	    (iword >> 11) & 0x1f);
+      else
+	fpr(stream, "%s %%%d, %d(%%%d)", opcode->name, (iword >> 16) & 0x1f,
+	    offset, (iword >> 11) & 0x1f);
+    }
     length = 4;
     break;
   }

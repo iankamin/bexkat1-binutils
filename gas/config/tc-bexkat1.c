@@ -266,11 +266,17 @@ md_assemble(char *str)
 	return;
       }
       op_end++;
-      while (ISSPACE(*op_end))
-	op_end++;
       iword |= (regnum & 0x1f) << 16;
     }
-    op_end = parse_exp_save_ilp(op_end, &arg);
+    while (ISSPACE(*op_end))
+      op_end++;
+    if (*op_end != '(')
+      op_end = parse_exp_save_ilp(op_end, &arg);
+    else { // Implicit 0 offset to allow for indirect
+      arg.X_op = O_constant;
+      arg.X_add_number = 0;
+    }
+      
     if (*op_end != '(') {
       as_bad(_("missing open paren: %s"), op_end);
       ignore_rest_of_line();
