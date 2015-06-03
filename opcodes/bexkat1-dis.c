@@ -45,6 +45,19 @@ find_opcode(unsigned mode, uint8_t opcode) {
   return NULL;
 }
 
+static char *print_reg_name(int regno) {
+  static char *list[] = { "%0", "%1", "%2", "%3",
+			  "%4", "%5", "%6", "%7",
+			  "%8", "%9", "%10", "%11",
+			  "%12", "%13", "%14", "%15",
+			  "%16", "%17", "%18", "%19",
+			  "%20", "%21", "%22", "%23",
+			  "%24", "%25", "%26", "%27",
+			  "%28", "%29", "%fp", "%sp" };
+  
+  return list[regno];
+}
+
 /* Disassemble one instruction at address 'memaddr'.  Returns the number
    of bytes used by that instruction.  */
 int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
@@ -76,13 +89,16 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
     if (opcode->args == 0)
       fpr(stream, "%s", opcode->name);
     if (opcode->args == 1)
-      fpr(stream, "%s %%%d", opcode->name, (iword >> 16) & 0x1f);
+      fpr(stream, "%s %s", opcode->name, print_reg_name((iword >> 16) & 0x1f));
     if (opcode->args == 2)
-      fpr(stream, "%s %%%d, %%%d", opcode->name, (iword >> 16) & 0x1f,
-	  (iword >> 11) & 0x1f);
+      fpr(stream, "%s %s, %s", opcode->name,
+	  print_reg_name((iword >> 16) & 0x1f),
+	  print_reg_name((iword >> 11) & 0x1f));
     if (opcode->args == 3)
-      fpr(stream, "%s %%%d, %%%d, %%%d", opcode->name, (iword >> 16) & 0x1f,
-	  (iword >> 11) & 0x1f, (iword >> 6) & 0x1f);
+      fpr(stream, "%s %s, %s, %s", opcode->name,
+	  print_reg_name((iword >> 16) & 0x1f),
+	  print_reg_name((iword >> 11) & 0x1f),
+	  print_reg_name((iword >> 6) & 0x1f));
     length = 4;
     break;
   case BEXKAT1_DIR:
@@ -99,23 +115,28 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
     }
     if (opcode->args == 2) {
       if (!strcmp("ldi", opcode->name)) {
-	fpr(stream, "%s %%%d, 0x%08x", opcode->name,
-	    (iword >> 16) & 0x1f, imm32);
+	fpr(stream, "%s %s, 0x%08x", opcode->name,
+	    print_reg_name((iword >> 16) & 0x1f),
+	    imm32);
       } else {
-	fpr(stream, "%s %%%d, ", opcode->name, (iword >> 16) & 0x1f);
+	fpr(stream, "%s %s, ", opcode->name,
+	    print_reg_name((iword >> 16) & 0x1f));
 	info->print_address_func((bfd_vma) imm32, info);
       }
     }
     if (opcode->args == 3)
-      fpr(stream, "%s %%%d, %%%d, 0x%08x", opcode->name, (iword >> 16) & 0x1f,
-	  (iword >> 11) & 0x1f, imm32);
+      fpr(stream, "%s %s, %s, 0x%08x", opcode->name, 
+	  print_reg_name((iword >> 16) & 0x1f),
+	  print_reg_name((iword >> 11) & 0x1f),
+	  imm32);
     length = 8;
     break;
   case BEXKAT1_IMM:
     if (opcode->args == 1)
       fpr(stream, "%s %d", opcode->name, (short)(iword & 0xffff));
     else
-      fpr(stream, "%s %%%d, %d", opcode->name, (iword >> 16) & 0x1f,
+      fpr(stream, "%s %s, %d", opcode->name,
+	  print_reg_name((iword >> 16) & 0x1f),
 	  (short)(iword & 0xffff));
     length = 4;
     break;
@@ -123,17 +144,22 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
     offset = (short)(iword & 0x400 ? 0xf800 | (iword & 0x7ff) : iword & 0x7ff);
     if (opcode->args == 2) {
       if (offset == 0)
-	fpr(stream, "%s (%%%d)", opcode->name, (iword >> 11) & 0x1f);
+	fpr(stream, "%s (%s)", opcode->name,
+	    print_reg_name((iword >> 11) & 0x1f));
       else
-	fpr(stream, "%s %d(%%%d)", opcode->name, offset, (iword >> 11) & 0x1f);
+	fpr(stream, "%s %d(%s)", opcode->name, offset,
+	    print_reg_name((iword >> 11) & 0x1f));
     }
     if (opcode->args == 3) {
       if (offset == 0)
-	fpr(stream, "%s %%%d, (%%%d)", opcode->name, (iword >> 16) & 0x1f,
-	    (iword >> 11) & 0x1f);
+	fpr(stream, "%s %s, (%s)", opcode->name,
+	    print_reg_name((iword >> 16) & 0x1f),
+	    print_reg_name((iword >> 11) & 0x1f));
       else
-	fpr(stream, "%s %%%d, %d(%%%d)", opcode->name, (iword >> 16) & 0x1f,
-	    offset, (iword >> 11) & 0x1f);
+	fpr(stream, "%s %s, %d(%s)", opcode->name,
+	    print_reg_name((iword >> 16) & 0x1f),
+	    offset,
+	    print_reg_name((iword >> 11) & 0x1f));
     }
     length = 4;
     break;

@@ -86,10 +86,16 @@ parse_regnum(char **ptr)
   }
   s++;
 
-  // optional f to mark a floating point register
-  if (*s == 'f') {
-    s++;
-    *ptr += 1;
+  // %fp alias for %30
+  if (s[0] == 'f' && s[1] == 'p') {
+    *ptr += 3;
+    return 30;
+  }
+
+  // %sp alias for %31
+  if (s[0] == 's' && s[1] == 'p') {
+    *ptr += 3;
+    return 31;
   }
 
   reg = *s - '0';
