@@ -46,8 +46,6 @@ const bexkat1_opc_info_t bexkat1_opc_info[] =
     { 0x12, 2, BEXKAT1_REG,   "mov.s" },
     { 0x13, 2, BEXKAT1_REG,   "cvtis" },
     { 0x14, 2, BEXKAT1_REG,   "cvtsi" },
-    { 0x15, 1, BEXKAT1_REG,    "movts" },
-    { 0x16, 1, BEXKAT1_REG,    "movfs" },
     { 0x17, 2, BEXKAT1_REG,    "ext.b" },
     { 0x18, 2, BEXKAT1_REG,    "ext" },
     { 0x20, 3, BEXKAT1_REG,     "and" },
