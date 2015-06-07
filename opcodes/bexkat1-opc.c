@@ -25,7 +25,7 @@
 
 const bexkat1_opc_info_t bexkat1_opc_info[] =
   {
-    { 0x00, 0, BEXKAT1_REG,    "nop" },
+    { 0x50, 0, BEXKAT1_REG,    "nop" },
     { 0x01, 0, BEXKAT1_REG,    "rts" },
     { 0x02, 2, BEXKAT1_REG,    "cmp" },
     { 0x03, 1, BEXKAT1_REG,    "inc" },
