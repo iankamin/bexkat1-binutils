@@ -24,7 +24,7 @@
 
 const bfd_arch_info_type bfd_bexkat1_arch =
 {
-    32,	/* 16 bits in a word */
+    32,	/* 32 bits in a word */
     32,	/* 32 bits in an address */
     8,	/* 8 bits in a byte */
     bfd_arch_bexkat1,

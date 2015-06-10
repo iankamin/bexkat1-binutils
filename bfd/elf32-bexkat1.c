@@ -55,18 +55,18 @@ static reloc_howto_type bexkat1_elf_howto_table[] =
 	  0,                      /* src_mask */
 	  0,                      /* dst_mask */
 	  FALSE),                 /* pcrel_offset */
-    HOWTO(R_BEXKAT1_11,           /* type */
+    HOWTO(R_BEXKAT1_15,           /* type */
 	  0,                      /* rightshift */
-	  1,                      /* size */
-	  11,                     /* bitsize */
+	  2,                      /* size */
+	  15,                     /* bitsize */
 	  FALSE,                  /* pc_relative */
 	  0,                      /* bitops */
 	  complain_overflow_bitfield, /* complain_on_overflow */
 	  bfd_elf_generic_reloc,  /* special_function */
-	  "R_BEXKAT1_DIR11",      /* name */
+	  "R_BEXKAT1_DIR15",      /* name */
 	  FALSE,                  /* partial_inplace */
 	  0,                      /* src_mask */
-	  0x7ff,                  /* dst_mask */
+	  0x1e0007ff,             /* dst_mask */
 	  FALSE),                 /* pcrel_offset */
     HOWTO(R_BEXKAT1_16,           /* type */
 	  0,                      /* rightshift */
@@ -118,7 +118,7 @@ struct elf_bexkat1_reloc_map
 static const struct elf_bexkat1_reloc_map bexkat1_reloc_map[] =
   {
     { BFD_RELOC_NONE,      R_BEXKAT1_NONE },
-    { BFD_RELOC_BEXKAT_11, R_BEXKAT1_11 },
+    { BFD_RELOC_BEXKAT_15, R_BEXKAT1_15 },
     { BFD_RELOC_16,        R_BEXKAT1_16 },
     { BFD_RELOC_16_PCREL,  R_BEXKAT1_PCREL_16 },
     { BFD_RELOC_32,        R_BEXKAT1_32 }

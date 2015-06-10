@@ -24,13 +24,6 @@ cat <<EOF
 OUTPUT_FORMAT("${OUTPUT_FORMAT}")
 OUTPUT_ARCH(${ARCH})
 
-MEMORY
-{
-  rom   (rx)  : ORIGIN = 0xffc00000, LENGTH = 2K
-  flash (rx)  : ORIGIN = 0xfe000000, LENGTH = 4M
-  ram (!rx) : ORIGIN = 0x00000000, LENGTH = 512K
-}
-
 SECTIONS
 {
   .text :
@@ -40,13 +33,13 @@ SECTIONS
       .fini : { KEEP (*(.fini)) } =0
     *(.strings)
     ${RELOCATING+ _etext = . ; }
-  } ${RELOCATING+ > rom}
+  } ${RELOCATING+ > ram}
   ${CONSTRUCTING+${TORS}}
   .data :
   {
     *(.data)
     ${RELOCATING+ _edata = . ; }
-  } ${RELOCATING+ > rom}
+  } ${RELOCATING+ > ram}
   .bss :
   {
     ${RELOCATING+ _bss_start = . ; }

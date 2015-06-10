@@ -31,7 +31,7 @@
 
 /*
  * REG:    000ooooooooaaaaa bbbbbccccc000000
- * REGIND: 001ooooooooaaaaa bbbbbvvvvvvvvvvv
+ * REGIND: 001vvvvooooaaaaa bbbbbvvvvvvvvvvv
  * IMM:    010ooooooooaaaaa vvvvvvvvvvvvvvvv
  * DIR:    100ooooooooaaaaa bbbbbccccc000000 vvvvvvvvvvvvvvvv vvvvvvvvvvvvvvvv
  */

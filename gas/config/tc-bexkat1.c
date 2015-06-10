@@ -137,6 +137,7 @@ md_assemble(char *str)
   int nlen = 0;
   expressionS arg;
   int regnum;
+  int offset;
   
   while (*str == ' ')
     str++;
@@ -302,20 +303,18 @@ md_assemble(char *str)
     op_end++;
     iword |= (regnum & 0x1f) << 11;
     p = frag_more(4);
-    if (target_big_endian)
-      fix_new_exp(frag_now,
-		  (p + 2 - frag_now->fr_literal),
-		  2,
-		  &arg,
-		  0,
-		  BFD_RELOC_BEXKAT_11);
-    else
-      fix_new_exp(frag_now,
-		  (p - frag_now->fr_literal),
-		  2,
-		  &arg,
-		  0,
-		  BFD_RELOC_BEXKAT_11);
+    if (arg.X_op != O_constant) {
+      as_bad(_("offset is not a constant expression"));
+      ignore_rest_of_line();
+      return;
+    }
+    offset = arg.X_add_number;
+    if (offset < -16383 || offset > 16382) {
+      as_bad(_("offset if out of range: %d\n"), offset);
+      ignore_rest_of_line();
+      return;
+    }
+    iword |= ((offset << 14) & 0x1e000000) | (offset & 0x7ff);
     md_number_to_chars(p, iword, 4);
     break;
   case BEXKAT1_DIR:
@@ -451,40 +450,19 @@ md_apply_fix(fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
   long val = *valP;
 
   switch (fixP->fx_r_type) {
-  case BFD_RELOC_BEXKAT_11:
-    if (val < -1024 || val > 1024)
+  case BFD_RELOC_BEXKAT_15:
+    if (val < -16383 || val > 16382)
       as_bad_where(fixP->fx_file, fixP->fx_line,
-		   _("Constant out of 11 bit range for BFD_RELOC_BEXKAT_11"));
-    if (target_big_endian) {
-      buf[0] |= ((val >> 8) & 0x07);
-      buf[1] = (val & 0xff);
-    } else {
-      buf[1] |= ((val >> 8) & 0x07);
-      buf[0] = (val & 0xff);
-    }
-    
+		   _("Constant out of 15 bit range for BFD_RELOC_BEXKAT_15"));
+    val = ((val << 14) & 0x1e000000) | (val & 0x7ff);
+    fprintf(stderr, "val is now %08x\n", (int)val);
+    md_number_to_chars(buf, (int)val, 4);
     break;
   case BFD_RELOC_16:
-    if (target_big_endian) {
-      buf[0] = val >> 8;
-      buf[1] = val >> 0;
-    } else {
-      buf[1] = val >> 8;
-      buf[0] = val >> 0;
-    }
+    md_number_to_chars(buf, (short)val, 2);
     break;
   case BFD_RELOC_32:
-    if (target_big_endian) {
-      buf[0] = val >> 24;
-      buf[1] = val >> 16;
-      buf[2] = val >> 8;
-      buf[3] = val >> 0;
-    } else {
-      buf[3] = val >> 24;
-      buf[2] = val >> 16;
-      buf[1] = val >> 8;
-      buf[0] = val >> 0;
-    }
+    md_number_to_chars(buf, (int)val, 4);
     break;
   case BFD_RELOC_16_PCREL:
     if (!val)
