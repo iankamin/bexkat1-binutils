@@ -78,6 +78,7 @@ const bexkat1_opc_info_t bexkat1_opc_info[] =
     { 0x05, 3, BEXKAT1_DIR,    "asri" },
     { 0x06, 3, BEXKAT1_DIR,    "lsri" },
     { 0x07, 3, BEXKAT1_DIR,    "xori" },
+    { 0x10, 1, BEXKAT1_DIR,    "trap" },
     { 0x20, 3, BEXKAT1_DIR,    "muli" },
     { 0x21, 3, BEXKAT1_DIR,    "divi" },
     { 0x22, 3, BEXKAT1_DIR,    "modi" },
