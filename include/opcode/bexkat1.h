@@ -27,7 +27,7 @@
 #define BEXKAT1_REG    0
 #define BEXKAT1_REGIND 1
 #define BEXKAT1_IMM    2
-#define BEXKAT1_DIR    4
+#define BEXKAT1_DIR    3
 
 /*
  * REG:    000ooooooooaaaaa bbbbbccccc000000

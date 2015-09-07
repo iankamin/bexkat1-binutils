@@ -1,23 +1,6 @@
 /* tc-bexkat1.c -- Assembler code for the Bexkat 1.
-   Copyright (C) 1999-2014 Free Software Foundation, Inc.
    Written by Matt Stock (stock@csgeeks.org)
-
-   This file is part of GAS, the GNU Assembler.
-
-   GAS is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GAS is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GAS; see the file COPYING.  If not, write to
-   the Free Software Foundation, 51 Franklin Street - Fifth Floor,
-   Boston, MA 02110-1301, USA.  */
+ */
 
 #include "as.h"
 #include "safe-ctype.h"
@@ -86,16 +69,16 @@ parse_regnum(char **ptr)
   }
   s++;
 
-  // %fp alias for %30
+  // %fp alias for %14
   if (s[0] == 'f' && s[1] == 'p') {
     *ptr += 3;
-    return 30;
+    return 14;
   }
 
-  // %sp alias for %31
+  // %sp alias for %15
   if (s[0] == 's' && s[1] == 'p') {
     *ptr += 3;
-    return 31;
+    return 15;
   }
 
   reg = *s - '0';
@@ -168,14 +151,14 @@ md_assemble(char *str)
 
   switch (opcode->mode) {
   case BEXKAT1_REG:
-    iword = (BEXKAT1_REG << 29) | (opcode->opcode << 21);
+    iword = (BEXKAT1_REG << 30) | (opcode->opcode << 23);
     if (opcode->args > 0) {
       regnum = parse_regnum(&op_end);
       if (regnum == -1)
 	return; 
       while (ISSPACE(*op_end))
 	op_end++;
-      iword |= (regnum & 0x1f) << 16;
+      iword |= (regnum & 0xf) << 16;
     }
     if (opcode->args > 1) {
       if (*op_end != ',') {
@@ -188,7 +171,7 @@ md_assemble(char *str)
       regnum = parse_regnum(&op_end);
       if (regnum == -1)
 	return;
-      iword |= ((regnum & 0x1f) << 11);
+      iword |= ((regnum & 0xf) << 12);
     }
     if (opcode->args > 2) {
       if (*op_end != ',') {
@@ -201,14 +184,14 @@ md_assemble(char *str)
       regnum = parse_regnum(&op_end);
       if (regnum == -1)
 	return;
-      iword |= ((regnum & 0x1f) << 6);
+      iword |= ((regnum & 0xf) << 8);
     }
 
     p = frag_more(4);  
     md_number_to_chars(p, iword, 4);
     break;
   case BEXKAT1_IMM:
-    iword = (BEXKAT1_IMM << 29) | (opcode->opcode << 21);
+    iword = (BEXKAT1_IMM << 30) | (opcode->opcode << 26);
     p = frag_more(4);
 
     if (opcode->args == 2) {
@@ -224,7 +207,7 @@ md_assemble(char *str)
       op_end++;
       while (ISSPACE(*op_end))
 	op_end++;
-      iword |= (regnum & 0x1f) << 16;
+      iword |= (regnum & 0xf) << 16;
       op_end = parse_exp_save_ilp(op_end, &arg);
       if (target_big_endian)
 	fix_new_exp(frag_now,
@@ -260,7 +243,7 @@ md_assemble(char *str)
     md_number_to_chars(p, iword, 4);
     break;
   case BEXKAT1_REGIND:
-    iword = (BEXKAT1_REGIND << 29) | (opcode->opcode << 21);
+    iword = (BEXKAT1_REGIND << 30) | (opcode->opcode << 26);
 
     if (opcode->args == 3) {
       regnum = parse_regnum(&op_end);
@@ -273,7 +256,7 @@ md_assemble(char *str)
 	return;
       }
       op_end++;
-      iword |= (regnum & 0x1f) << 16;
+      iword |= (regnum & 0xf) << 16;
     }
     while (ISSPACE(*op_end))
       op_end++;
@@ -301,7 +284,7 @@ md_assemble(char *str)
       return;
     }
     op_end++;
-    iword |= (regnum & 0x1f) << 11;
+    iword |= (regnum & 0xf) << 12;
     p = frag_more(4);
     if (arg.X_op != O_constant) {
       as_bad(_("offset is not a constant expression"));
@@ -309,16 +292,16 @@ md_assemble(char *str)
       return;
     }
     offset = arg.X_add_number;
-    if (offset < -16383 || offset > 16382) {
-      as_bad(_("offset if out of range: %d\n"), offset);
+    if (offset < -32767 || offset > 65535) {
+      as_bad(_("offset is out of range: %d\n"), offset);
       ignore_rest_of_line();
       return;
     }
-    iword |= ((offset << 14) & 0x1e000000) | (offset & 0x7ff);
+    iword |= ((offset & 0xf000) << 8) | (offset & 0xfff);
     md_number_to_chars(p, iword, 4);
     break;
   case BEXKAT1_DIR:
-    iword = (BEXKAT1_DIR << 29) | (opcode->opcode << 21);
+    iword = (BEXKAT1_DIR << 30) | (opcode->opcode << 24);
     if (opcode->args > 1) {
       regnum = parse_regnum(&op_end);
       if (regnum == -1)
@@ -330,7 +313,7 @@ md_assemble(char *str)
 	return;
       }
       op_end++;
-      iword |= (regnum & 0x1f) << 16;
+      iword |= (regnum & 0xf) << 16;
     }
     if (opcode->args > 2) {
       regnum = parse_regnum(&op_end);
@@ -343,18 +326,37 @@ md_assemble(char *str)
 	return;
       }
       op_end++;
-      iword |= (regnum & 0x1f) << 11;
+      iword |= (regnum & 0xf) << 12;
     }
-    p = frag_more(4);
-    md_number_to_chars(p, iword, 4);
+    // We have a few opcodes (30, 31, 1x) that have an additiona word with an address
+    // the other opcodes use a value similar to REGIND, and trap doesn't use any registers
+    // we figured out the registers above, so now it's just the addressing
     op_end = parse_exp_save_ilp(op_end, &arg);
     p = frag_more(4);
-    fix_new_exp(frag_now,
+    if (opcode->opcode == 0x30 || opcode->opcode == 0x31 || opcode->opcode & 0x10) {
+      md_number_to_chars(p, iword, 4);
+      p = frag_more(4);
+      fix_new_exp(frag_now,
 		(p - frag_now->fr_literal),
 		4,
 		&arg,
 		0,
 		BFD_RELOC_32);
+    } else {
+      if (arg.X_op != O_constant) {
+        as_bad(_("offset is not a constant expression"));
+        ignore_rest_of_line();
+        return;
+      }
+      offset = arg.X_add_number;
+      if (offset < -32767 || offset > 65535) {
+        as_bad(_("offset is out of range: %d\n"), offset);
+        ignore_rest_of_line();
+        return;
+      }
+      iword |= ((offset & 0xf000) << 8) | (offset & 0xfff);
+      md_number_to_chars(p, iword, 4);
+    }
     break;
   }
 
