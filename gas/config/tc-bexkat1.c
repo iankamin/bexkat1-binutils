@@ -19,6 +19,8 @@ static struct hash_control *opcode_hash_control;
 
 extern int target_big_endian;
 
+static valueT md_chars_to_number (char * buf, int n);
+
 const pseudo_typeS md_pseudo_table[] =
   {
     { 0, 0, 0}
@@ -208,39 +210,40 @@ md_assemble(char *str)
       while (ISSPACE(*op_end))
 	op_end++;
       iword |= (regnum & 0xf) << 16;
+      md_number_to_chars(p, iword, 4);
       op_end = parse_exp_save_ilp(op_end, &arg);
       if (target_big_endian)
 	fix_new_exp(frag_now,
-		    (p + 2 - frag_now->fr_literal),
-		    2,
+		    (p - frag_now->fr_literal),
+		    4,
 		    &arg,
 		    0,
 		    BFD_RELOC_16);
       else
 	fix_new_exp(frag_now,
 		    (p - frag_now->fr_literal),
-		    2,
+		    4,
 		    &arg,
 		    0,
 		    BFD_RELOC_16);
     } else {
       op_end = parse_exp_save_ilp(op_end, &arg);
+      md_number_to_chars(p, iword, 4);
       if (target_big_endian)
 	fix_new_exp(frag_now,
-		    (p + 2 - frag_now->fr_literal),
-		    2,
+		    (p - frag_now->fr_literal),
+		    4,
 		    &arg,
 		    TRUE,
 		    BFD_RELOC_16_PCREL);
       else
 	fix_new_exp(frag_now,
 		    (p - frag_now->fr_literal),
-		    2,
+		    4,
 		    &arg,
 		    TRUE,
 		    BFD_RELOC_16_PCREL);
     }
-    md_number_to_chars(p, iword, 4);
     break;
   case BEXKAT1_REGIND:
     iword = (BEXKAT1_REGIND << 30) | (opcode->opcode << 26);
@@ -292,7 +295,7 @@ md_assemble(char *str)
       return;
     }
     offset = arg.X_add_number;
-    if (offset < -32767 || offset > 65535) {
+    if (offset < -32768 || offset > 32767) {
       as_bad(_("offset is out of range: %d\n"), offset);
       ignore_rest_of_line();
       return;
@@ -328,7 +331,7 @@ md_assemble(char *str)
       op_end++;
       iword |= (regnum & 0xf) << 12;
     }
-    // We have a few opcodes (30, 31, 1x) that have an additiona word with an address
+    // We have a few opcodes (30, 31, 1x) that have an additional word with an address
     // the other opcodes use a value similar to REGIND, and trap doesn't use any registers
     // we figured out the registers above, so now it's just the addressing
     op_end = parse_exp_save_ilp(op_end, &arg);
@@ -349,7 +352,7 @@ md_assemble(char *str)
         return;
       }
       offset = arg.X_add_number;
-      if (offset < -32767 || offset > 65535) {
+      if (offset < -32768 || offset > 32767) {
         as_bad(_("offset is out of range: %d\n"), offset);
         ignore_rest_of_line();
         return;
@@ -450,6 +453,7 @@ md_apply_fix(fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
 {
   char *buf = fixP->fx_where + fixP->fx_frag->fr_literal;
   long val = *valP;
+  valueT newval;
 
   switch (fixP->fx_r_type) {
   case BFD_RELOC_BEXKAT_15:
@@ -457,11 +461,14 @@ md_apply_fix(fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
       as_bad_where(fixP->fx_file, fixP->fx_line,
 		   _("Constant out of 15 bit range for BFD_RELOC_BEXKAT_15"));
     val = ((val << 14) & 0x1e000000) | (val & 0x7ff);
-    fprintf(stderr, "val is now %08x\n", (int)val);
     md_number_to_chars(buf, (int)val, 4);
     break;
   case BFD_RELOC_16:
-    md_number_to_chars(buf, (short)val, 2);
+    if (!val)
+      break;
+    newval = md_chars_to_number(buf, 4);
+    newval |= ((val & 0xf000) << 8) | (val & 0xfff);
+    md_number_to_chars(buf, (int)newval, 4);
     break;
   case BFD_RELOC_32:
     md_number_to_chars(buf, (int)val, 4);
@@ -469,10 +476,14 @@ md_apply_fix(fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
   case BFD_RELOC_16_PCREL:
     if (!val)
       break;
-    if (val < -32766 || val > 32767)
+    if (val < -32768 || val > 32767)
       as_bad_where(fixP->fx_file, fixP->fx_line,
-		   _("pcrel too far BFD_RELOC_16_PCREL"));
-    md_number_to_chars(buf, (short)val, 2);
+		   _("pcrel too far BFD_RELOC_16_PCREL (%ld)"), val);
+    newval = md_chars_to_number(buf, 4);
+    newval |= ((val & 0xf000) << 8) | (val & 0xfff);
+    /*    printf("applying fix reloc16_pcrel val =  %08lx, where = %lu, newval = %08lx\n",
+	  val, fixP->fx_where, newval); */
+    md_number_to_chars(buf, (int)newval, 4);
     break;
   default:
     as_fatal (_("Line %d: unknown relocation type: 0x%x."),
@@ -493,6 +504,32 @@ md_number_to_chars(char *ptr, valueT use, int nbytes)
   }
 }
 
+static valueT
+md_chars_to_number (char * buf, int n)
+{
+  valueT result = 0;
+  unsigned char * where = (unsigned char *) buf;
+
+  if (target_big_endian)
+    {
+      while (n--)
+	{
+	  result <<= 8;
+	  result |= (*where++ & 255);
+	}
+    }
+  else
+    {
+      while (n--)
+	{
+	  result <<= 8;
+	  result |= (where[n] & 255);
+	}
+    }
+
+  return result;
+}
+
 long
 md_pcrel_from(fixS *fixP)
 {
@@ -501,9 +538,9 @@ md_pcrel_from(fixS *fixP)
   switch (fixP->fx_r_type) {
   case BFD_RELOC_16_PCREL:
     if (target_big_endian)
-      return addr + 2;
-    else
       return addr + 4;
+    else
+      return addr;
   default:
     abort();
   }
@@ -522,6 +559,7 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp)
   rel->address = fixp->fx_frag->fr_address + fixp->fx_where;
 
   r_type = fixp->fx_r_type;
+
   rel->addend = fixp->fx_offset; 
   rel->howto = bfd_reloc_type_lookup(stdoutput, r_type);
 
