@@ -336,7 +336,7 @@ md_assemble(char *str)
     // we figured out the registers above, so now it's just the addressing
     op_end = parse_exp_save_ilp(op_end, &arg);
     p = frag_more(4);
-    if (opcode->opcode == 0x30 || opcode->opcode == 0x31 || opcode->opcode & 0x10) {
+    if (opcode->opcode == 0x30 || opcode->opcode == 0x31 || opcode->opcode == 0x33 || (opcode->opcode & 0xf0) == 0x10) {
       md_number_to_chars(p, iword, 4);
       p = frag_more(4);
       fix_new_exp(frag_now,

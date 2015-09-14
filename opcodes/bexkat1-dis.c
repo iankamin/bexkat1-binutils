@@ -118,7 +118,7 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
   case BEXKAT1_DIR:
     offset = 0;
     imm32 = 0;
-    if (opcode->opcode == 0x30 || opcode->opcode == 0x31 || opcode->opcode & 0x10) {
+    if (opcode->opcode == 0x30 || opcode->opcode == 0x31 || opcode->opcode == 0x33 || (opcode->opcode & 0xf0) == 0x10) {
       if ((status = info->read_memory_func(memaddr+4, buffer, 4, info)))
         goto fail;
       if (info->endian == BFD_ENDIAN_BIG)

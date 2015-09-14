@@ -76,6 +76,7 @@ const bexkat1_opc_info_t bexkat1_opc_info[] =
     { 0x30, 1, BEXKAT1_DIR,     "jmpd" },
     { 0x31, 1, BEXKAT1_DIR,     "jsrd" },
     { 0x32, 1, BEXKAT1_DIR,    "trap" },
+    { 0x33, 1, BEXKAT1_DIR,    "setint" },
     { 0x00, 1, BEXKAT1_IMM,    "bra" },  
     { 0x01, 1, BEXKAT1_IMM,    "beq" },  
     { 0x02, 1, BEXKAT1_IMM,    "bne" },  
