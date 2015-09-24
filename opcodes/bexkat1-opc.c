@@ -28,6 +28,8 @@ const bexkat1_opc_info_t bexkat1_opc_info[] =
     { 0x11, 2, BEXKAT1_REG,   "cvtsi" },
     { 0x12, 2, BEXKAT1_REG,    "ext.b" },
     { 0x13, 2, BEXKAT1_REG,    "ext" },
+    { 0x14, 0, BEXKAT1_REG,   "cli" },
+    { 0x15, 0, BEXKAT1_REG,   "sti" },
     { 0x20, 3, BEXKAT1_REG,     "and" },
     { 0x21, 3, BEXKAT1_REG,     "or"  },
     { 0x22, 3, BEXKAT1_REG,     "add" },
