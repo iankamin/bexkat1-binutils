@@ -158,6 +158,7 @@ DESCRIPTION
 .  bfd_target_srec_flavour,
 .  bfd_target_verilog_flavour,
 .  bfd_target_ihex_flavour,
+.  bfd_target_mif_flavour,
 .  bfd_target_som_flavour,
 .  bfd_target_os9k_flavour,
 .  bfd_target_versados_flavour,
@@ -920,6 +921,7 @@ extern const bfd_target verilog_vec;
 extern const bfd_target tekhex_vec;
 extern const bfd_target binary_vec;
 extern const bfd_target ihex_vec;
+extern const bfd_target mif_vec;
 
 /* All of the xvecs for core files.  */
 extern const bfd_target core_aix386_vec;
@@ -1458,6 +1460,8 @@ static const bfd_target * const _bfd_target_vector[] =
 	&binary_vec,
 /* Likewise for ihex.  */
 	&ihex_vec,
+/* Likewise for mif.  */
+	&mif_vec,
 
 /* Add any required traditional-core-file-handler.  */
 

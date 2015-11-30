@@ -314,6 +314,7 @@ CODE_FRAGMENT
 .      struct srec_data_struct *srec_data;
 .      struct verilog_data_struct *verilog_data;
 .      struct ihex_data_struct *ihex_data;
+.      struct mif_data_struct *mif_data;
 .      struct tekhex_data_struct *tekhex_data;
 .      struct elf_obj_tdata *elf_obj_data;
 .      struct nlm_obj_tdata *nlm_obj_data;
