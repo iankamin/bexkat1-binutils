@@ -24,23 +24,32 @@
 
 #include <stdint.h>
 
-#define BEXKAT1_REG    0
-#define BEXKAT1_REGIND 1
-#define BEXKAT1_IMM    2
-#define BEXKAT1_DIR    3
+#define BEXKAT1_INH    0
+#define BEXKAT1_PUSH   1
+#define BEXKAT1_POP    2
+#define BEXKAT1_CMP    3
+#define BEXKAT1_MOV    4
+#define BEXKAT1_FP     5
+#define BEXKAT1_ALU    6
+#define BEXKAT1_INT    7
+#define BEXKAT1_LDI    8
+#define BEXKAT1_LOAD   9
+#define BEXKAT1_STORE 10
+#define BEXKAT1_BRANCH 11
+#define BEXKAT1_JUMP 12
 
 /*
- * REG:    000ooooooooaaaaa bbbbbccccc000000
- * REGIND: 001vvvvooooaaaaa bbbbbvvvvvvvvvvv
- * IMM:    010ooooooooaaaaa vvvvvvvvvvvvvvvv
- * DIR:    100ooooooooaaaaa bbbbbccccc000000 vvvvvvvvvvvvvvvv vvvvvvvvvvvvvvvv
+ * tttt oooo aaaa bbbb cccc xxxx xxx0
+ * tttt oooo aaaa bbbb vvvv vvvv vvv0
+ * tttt oooo aaaa xxxx xxxx xxxx xxx1 vvvvvvvvvvvvvvvv vvvvvvvvvvvvvvvv
  */
 
 typedef struct bexkat1_opcode
 {
+  uint8_t type;
   uint8_t opcode;
+  unsigned int size;
   unsigned int args;
-  unsigned int mode;
   const char *name;
 } bexkat1_opc_info_t;
 

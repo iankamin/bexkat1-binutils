@@ -120,10 +120,10 @@ md_assemble(char *str)
   char pend;
   unsigned int iword;
   int nlen = 0;
-  expressionS arg;
   int regnum;
+  expressionS arg;
   int offset;
-  
+
   while (*str == ' ')
     str++;
   
@@ -151,214 +151,351 @@ md_assemble(char *str)
     return;
   }
 
-  switch (opcode->mode) {
-  case BEXKAT1_REG:
-    iword = (BEXKAT1_REG << 30) | (opcode->opcode << 23);
-    if (opcode->args > 0) {
-      regnum = parse_regnum(&op_end);
-      if (regnum == -1)
-	return; 
-      while (ISSPACE(*op_end))
-	op_end++;
-      iword |= (regnum & 0xf) << 16;
-    }
-    if (opcode->args > 1) {
-      if (*op_end != ',') {
-	as_bad(_("missing comma: %s"), op_end);
-	return;
-      }
-      op_end++;
-      while (ISSPACE(*op_end))
-	op_end++;
-      regnum = parse_regnum(&op_end);
-      if (regnum == -1)
-	return;
-      iword |= ((regnum & 0xf) << 12);
-    }
-    if (opcode->args > 2) {
-      if (*op_end != ',') {
-	as_bad(_("missing comma: %s"), op_end);
-	return;
-      }
-      op_end++;
-      while (ISSPACE(*op_end))
-	op_end++;
-      regnum = parse_regnum(&op_end);
-      if (regnum == -1)
-	return;
-      iword |= ((regnum & 0xf) << 8);
-    }
+  iword = (opcode->type << 28) | (opcode->opcode << 24) | opcode->size;
 
-    p = frag_more(4);  
-    md_number_to_chars(p, iword, 4);
+  p = frag_more(4);
+
+  switch (opcode->type) {
+  case BEXKAT1_INH:
+    if (opcode->args == 0) {
+      md_number_to_chars(p, iword, 4);
+    }
+    if (opcode->args == 1) {
+      op_end = parse_exp_save_ilp(op_end, &arg);
+      if (opcode->size) {
+	md_number_to_chars(p, iword, 4);
+	p = frag_more(4);
+	fix_new_exp(frag_now,
+		    (p - frag_now->fr_literal),
+		    4,
+		    &arg,
+		    0,
+		    BFD_RELOC_32);
+      } else {
+	if (arg.X_op != O_constant) {
+	  as_bad(_("offset is not a constant expression"));
+	  ignore_rest_of_line();
+	  return;
+	}
+	offset = arg.X_add_number;
+	if (offset < -16384 || offset > 16383) {
+	  as_bad(_("offset is out of range: %d\n"), offset);
+	  ignore_rest_of_line();
+	  return;
+	}
+	
+	md_number_to_chars(p, iword, 4);
+	fix_new_exp(frag_now,
+		    (p - frag_now->fr_literal),
+		    4,
+		    &arg,
+		    0,
+		    BFD_RELOC_BEXKAT1_15);
+      }
+    }
     break;
-  case BEXKAT1_IMM:
-    iword = (BEXKAT1_IMM << 30) | (opcode->opcode << 26);
-    p = frag_more(4);
-
+  case BEXKAT1_PUSH:
+    if (opcode->args == 1) {
+      if (opcode->size) {
+	op_end = parse_exp_save_ilp(op_end, &arg);
+	md_number_to_chars(p, iword, 4);
+	p = frag_more(4);
+	fix_new_exp(frag_now,
+		    (p - frag_now->fr_literal),
+		    4,
+		    &arg,
+		    0,
+		    BFD_RELOC_32);
+      } else {
+	regnum = parse_regnum(&op_end);
+	if (regnum == -1)
+	  return; 
+	while (ISSPACE(*op_end))
+	  op_end++;
+	iword |= (regnum & 0xf) << 20; // A
+	md_number_to_chars(p, iword, 4);
+      }
+    }
     if (opcode->args == 2) {
+      if (*op_end != '(')
+	op_end = parse_exp_save_ilp(op_end, &arg);
+      else { // Implicit 0 offset to allow for indirect
+	arg.X_op = O_constant;
+	arg.X_add_number = 0;
+      }
+      
+      if (*op_end != '(') {
+	as_bad(_("missing open paren: %s"), op_end);
+	ignore_rest_of_line();
+	return;
+      }
+      op_end++; // burn paren
+      while (ISSPACE(*op_end))
+	op_end++;
+      
       regnum = parse_regnum(&op_end);
       if (regnum == -1)
 	return; 
       while (ISSPACE(*op_end))
 	op_end++;
-      if (*op_end != ',') {
-	as_bad(_("missing comma: %s"), op_end);
+      iword |= (regnum & 0xf) << 16; // B
+      
+      if (*op_end != ')') {
+	as_bad(_("missing close paren: %s"), op_end);
+	ignore_rest_of_line();
 	return;
       }
       op_end++;
-      while (ISSPACE(*op_end))
-	op_end++;
-      iword |= (regnum & 0xf) << 16;
+      
+      if (arg.X_op != O_constant) {
+	as_bad(_("offset is not a constant expression"));
+	ignore_rest_of_line();
+	return;
+      }
+      offset = arg.X_add_number;
+      if (offset < -16384 || offset > 16383) {
+	as_bad(_("offset is out of range: %d\n"), offset);
+	ignore_rest_of_line();
+	return;
+      }
+
       md_number_to_chars(p, iword, 4);
-      op_end = parse_exp_save_ilp(op_end, &arg);
-      if (target_big_endian)
-	fix_new_exp(frag_now,
-		    (p - frag_now->fr_literal),
-		    4,
-		    &arg,
-		    0,
-		    BFD_RELOC_16);
-      else
-	fix_new_exp(frag_now,
-		    (p - frag_now->fr_literal),
-		    4,
-		    &arg,
-		    0,
-		    BFD_RELOC_16);
-    } else {
-      op_end = parse_exp_save_ilp(op_end, &arg);
-      md_number_to_chars(p, iword, 4);
-      if (target_big_endian)
-	fix_new_exp(frag_now,
-		    (p - frag_now->fr_literal),
-		    4,
-		    &arg,
-		    TRUE,
-		    BFD_RELOC_16_PCREL);
-      else
-	fix_new_exp(frag_now,
-		    (p - frag_now->fr_literal),
-		    4,
-		    &arg,
-		    TRUE,
-		    BFD_RELOC_16_PCREL);
+      fix_new_exp(frag_now,
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_BEXKAT1_15);
     }
     break;
-  case BEXKAT1_REGIND:
-    iword = (BEXKAT1_REGIND << 30) | (opcode->opcode << 26);
-
-    if (opcode->args == 3) {
+  case BEXKAT1_POP:
+    if (opcode->args == 0) {
+      md_number_to_chars(p, iword, 4);
+    }
+    if (opcode->args == 1) {
       regnum = parse_regnum(&op_end);
       if (regnum == -1)
 	return; 
       while (ISSPACE(*op_end))
 	op_end++;
-      if (*op_end != ',') {
-	as_bad(_("missing comma: %s"), op_end);
-	return;
-      }
-      op_end++;
-      iword |= (regnum & 0xf) << 16;
+      iword |= (regnum & 0xf) << 20; // A
+      md_number_to_chars(p, iword, 4);
     }
-    while (ISSPACE(*op_end))
-      op_end++;
-    if (*op_end != '(')
-      op_end = parse_exp_save_ilp(op_end, &arg);
-    else { // Implicit 0 offset to allow for indirect
-      arg.X_op = O_constant;
-      arg.X_add_number = 0;
-    }
-      
-    if (*op_end != '(') {
-      as_bad(_("missing open paren: %s"), op_end);
-      ignore_rest_of_line();
-      return;
-    }
-    op_end++; // burn paren
-    while (ISSPACE(*op_end))
-      op_end++;
+    break;
+  case BEXKAT1_CMP:
+  case BEXKAT1_MOV:
+  case BEXKAT1_FP:
+  case BEXKAT1_ALU:
+  case BEXKAT1_INT:
     regnum = parse_regnum(&op_end);
     if (regnum == -1)
-      return;
-    if (*op_end != ')') {
-      as_bad(_("missing close paren: %s"), op_end);
-      ignore_rest_of_line();
+      return; 
+    while (ISSPACE(*op_end))
+      op_end++;
+    iword |= (regnum & 0xf) << 20; // A
+
+    if (*op_end != ',') {
+      as_bad(_("missing comma: %s"), op_end);
       return;
     }
     op_end++;
-    iword |= (regnum & 0xf) << 12;
-    p = frag_more(4);
-    if (arg.X_op != O_constant) {
-      as_bad(_("offset is not a constant expression"));
-      ignore_rest_of_line();
-      return;
-    }
-    offset = arg.X_add_number;
-    if (offset < -32768 || offset > 32767) {
-      as_bad(_("offset is out of range: %d\n"), offset);
-      ignore_rest_of_line();
-      return;
-    }
-    iword |= ((offset & 0xf000) << 8) | (offset & 0xfff);
-    md_number_to_chars(p, iword, 4);
-    break;
-  case BEXKAT1_DIR:
-    iword = (BEXKAT1_DIR << 30) | (opcode->opcode << 24);
-    if (opcode->args > 1) {
-      regnum = parse_regnum(&op_end);
-      if (regnum == -1)
-	return; 
-      while (ISSPACE(*op_end))
-	op_end++;
-      if (*op_end != ',') {
-	as_bad(_("missing comma: %s"), op_end);
-	return;
-      }
+    while (ISSPACE(*op_end))
       op_end++;
-      iword |= (regnum & 0xf) << 16;
-    }
+    
+    regnum = parse_regnum(&op_end);
+    if (regnum == -1)
+      return; 
+    while (ISSPACE(*op_end))
+      op_end++;
+    iword |= (regnum & 0xf) << 16; // B
+
     if (opcode->args > 2) {
-      regnum = parse_regnum(&op_end);
-      if (regnum == -1)
-	return; 
-      while (ISSPACE(*op_end))
-	op_end++;
+
       if (*op_end != ',') {
 	as_bad(_("missing comma: %s"), op_end);
 	return;
       }
       op_end++;
-      iword |= (regnum & 0xf) << 12;
+      while (ISSPACE(*op_end))
+	op_end++;
+      
+      if (opcode->opcode < 8) {
+	regnum = parse_regnum(&op_end);
+	if (regnum == -1)
+	  return; 
+	while (ISSPACE(*op_end))
+	  op_end++;
+	iword |= (regnum & 0xf) << 12; // C
+	md_number_to_chars(p, iword, 4);
+      } else {
+	op_end = parse_exp_save_ilp(op_end, &arg);
+	if (arg.X_op != O_constant) {
+	  as_bad(_("offset is not a constant expression"));
+	  ignore_rest_of_line();
+	  return;
+	}
+	offset = arg.X_add_number;
+	if (offset < -16384 || offset > 16383) {
+	  as_bad(_("offset is out of range: %d\n"), offset);
+	  ignore_rest_of_line();
+	  return;
+	}
+	md_number_to_chars(p, iword, 4);
+	fix_new_exp(frag_now,
+		    (p - frag_now->fr_literal),
+		    4,
+		    &arg,
+		    0,
+		    BFD_RELOC_BEXKAT1_15);
+      }
+    } else {
+      md_number_to_chars(p, iword, 4);
     }
-    // We have a few opcodes (30, 31, 1x) that have an additional word with an address
-    // the other opcodes use a value similar to REGIND, and trap doesn't use any registers
-    // we figured out the registers above, so now it's just the addressing
+    break;
+  case BEXKAT1_BRANCH:
+    md_number_to_chars(p, iword, 4);
     op_end = parse_exp_save_ilp(op_end, &arg);
-    p = frag_more(4);
-    if (opcode->opcode == 0x30 || opcode->opcode == 0x31 || opcode->opcode == 0x33 || (opcode->opcode & 0xf0) == 0x10) {
+    if (target_big_endian)
+      fix_new_exp(frag_now,
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_BEXKAT1_15_PCREL);
+    else
+      fix_new_exp(frag_now,
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_BEXKAT1_15_PCREL);
+    break;
+  case BEXKAT1_LOAD:
+  case BEXKAT1_STORE:
+    // A, 
+    regnum = parse_regnum(&op_end);
+    if (regnum == -1)
+      return; 
+    while (ISSPACE(*op_end))
+      op_end++;
+    iword |= (regnum & 0xf) << 20; // A
+    
+    if (*op_end != ',') {
+      as_bad(_("missing comma: %s"), op_end);
+      return;
+    }
+    op_end++;
+    while (ISSPACE(*op_end))
+      op_end++;
+    // NO BREAK IS INTENTIONAL!
+  case BEXKAT1_JUMP:
+    if (opcode->size) { // big address
+      md_number_to_chars(p, iword, 4);
+      op_end = parse_exp_save_ilp(op_end, &arg);
+      p = frag_more(4);
+      fix_new_exp(frag_now,
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_32);
+    } else { // exp(B)
+      if (*op_end != '(')
+	op_end = parse_exp_save_ilp(op_end, &arg);
+      else { // Implicit 0 offset to allow for indirect
+	arg.X_op = O_constant;
+	arg.X_add_number = 0;
+      }
+      
+      if (*op_end != '(') {
+	as_bad(_("missing open paren: %s"), op_end);
+	ignore_rest_of_line();
+	return;
+      }
+      op_end++; // burn paren
+      while (ISSPACE(*op_end))
+	op_end++;
+      
+      regnum = parse_regnum(&op_end);
+      if (regnum == -1)
+	return; 
+      while (ISSPACE(*op_end))
+	op_end++;
+      iword |= (regnum & 0xf) << 16; // B
+      
+      if (*op_end != ')') {
+	as_bad(_("missing close paren: %s"), op_end);
+	ignore_rest_of_line();
+	return;
+      }
+      op_end++;
+      
+      if (arg.X_op != O_constant) {
+	as_bad(_("offset is not a constant expression"));
+	ignore_rest_of_line();
+	return;
+      }
+      offset = arg.X_add_number;
+      if (offset < -16384 || offset > 16383) {
+	as_bad(_("offset is out of range: %d\n"), offset);
+	ignore_rest_of_line();
+	return;
+      }
+
+      md_number_to_chars(p, iword, 4);
+      fix_new_exp(frag_now,
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_BEXKAT1_15);
+    }
+    break;
+  case BEXKAT1_LDI:
+    regnum = parse_regnum(&op_end);
+    if (regnum == -1)
+      return; 
+    while (ISSPACE(*op_end))
+      op_end++;
+    iword |= (regnum & 0xf) << 20; // A
+    
+    if (*op_end != ',') {
+      as_bad(_("missing comma: %s"), op_end);
+      return;
+    }
+    op_end++;
+    while (ISSPACE(*op_end))
+      op_end++;
+    op_end = parse_exp_save_ilp(op_end, &arg);
+    if (opcode->size) {
       md_number_to_chars(p, iword, 4);
       p = frag_more(4);
       fix_new_exp(frag_now,
-		(p - frag_now->fr_literal),
-		4,
-		&arg,
-		0,
-		BFD_RELOC_32);
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_32);
     } else {
       if (arg.X_op != O_constant) {
-        as_bad(_("offset is not a constant expression"));
-        ignore_rest_of_line();
-        return;
+	as_bad(_("offset is not a constant expression"));
+	ignore_rest_of_line();
+	return;
       }
       offset = arg.X_add_number;
-      if (offset < -32768 || offset > 32767) {
-        as_bad(_("offset is out of range: %d\n"), offset);
-        ignore_rest_of_line();
-        return;
+      if (offset > 32768) {
+	as_bad(_("offset is out of range: %d\n"), offset);
+	ignore_rest_of_line();
+	return;
       }
-      iword |= ((offset & 0xf000) << 8) | (offset & 0xfff);
+
       md_number_to_chars(p, iword, 4);
+      fix_new_exp(frag_now,
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_BEXKAT1_15);
     }
     break;
   }
@@ -449,41 +586,57 @@ md_show_usage(FILE *stream)
 }
 
 void
-md_apply_fix(fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+md_apply_fix(fixS *fixP, valueT *valP, segT segment)
 {
-  char *buf = fixP->fx_where + fixP->fx_frag->fr_literal;
-  long val = *valP;
-  valueT newval;
+  char *buf  = fixP->fx_where + fixP->fx_frag->fr_literal;
+  /* Note: use offsetT because it is signed, valueT is unsigned.  */
+  offsetT val  = (offsetT) * valP;
+  segT symsec
+    = (fixP->fx_addsy == NULL
+       ? absolute_section : S_GET_SEGMENT (fixP->fx_addsy));
+
+  /* If the fix is relative to a symbol which is not defined, or, (if
+     pcrel), not in the same segment as the fix, we cannot resolve it
+     here.  */
+  if (fixP->fx_addsy != NULL
+      && (! S_IS_DEFINED (fixP->fx_addsy)
+	  || S_IS_WEAK (fixP->fx_addsy)
+	  || (fixP->fx_pcrel && symsec != segment)
+	  || (! fixP->fx_pcrel
+	      && symsec != absolute_section
+	      && symsec != reg_section)))
+    {
+      fixP->fx_done = 0;
+      return;
+    }
+  else if (fixP->fx_r_type == BFD_RELOC_VTABLE_INHERIT
+	   || fixP->fx_r_type == BFD_RELOC_VTABLE_ENTRY)
+    {
+      /* These are never "fixed".  */
+      fixP->fx_done = 0;
+      return;
+    }
+  else
+    /* We assume every other relocation is "fixed".  */
+    fixP->fx_done = 1;
 
   switch (fixP->fx_r_type) {
-  case BFD_RELOC_BEXKAT_15:
-    if (val < -16383 || val > 16382)
-      as_bad_where(fixP->fx_file, fixP->fx_line,
-		   _("Constant out of 15 bit range for BFD_RELOC_BEXKAT_15"));
-    val = ((val << 14) & 0x1e000000) | (val & 0x7ff);
-    md_number_to_chars(buf, (int)val, 4);
-    break;
-  case BFD_RELOC_16:
+  case BFD_RELOC_BEXKAT1_15:
+  case BFD_RELOC_BEXKAT1_15_PCREL:
     if (!val)
       break;
-    newval = md_chars_to_number(buf, 4);
-    newval |= ((val & 0xf000) << 8) | (val & 0xfff);
-    md_number_to_chars(buf, (int)newval, 4);
+    if (val < -16383 || val > 16382) {
+      as_warn_where(fixP->fx_file, fixP->fx_line,
+		    _("operand out of 15 bit range for reloc"));
+      fixP->fx_done = 0;
+      val = 0;
+    }
+    val = md_chars_to_number(buf, fixP->fx_size)
+      | ((val & 0x7fff) << 1);
+    md_number_to_chars(buf, val, fixP->fx_size);
     break;
   case BFD_RELOC_32:
-    md_number_to_chars(buf, (int)val, 4);
-    break;
-  case BFD_RELOC_16_PCREL:
-    if (!val)
-      break;
-    if (val < -32768 || val > 32767)
-      as_bad_where(fixP->fx_file, fixP->fx_line,
-		   _("pcrel too far BFD_RELOC_16_PCREL (%ld)"), val);
-    newval = md_chars_to_number(buf, 4);
-    newval |= ((val & 0xf000) << 8) | (val & 0xfff);
-    /*    printf("applying fix reloc16_pcrel val =  %08lx, where = %lu, newval = %08lx\n",
-	  val, fixP->fx_where, newval); */
-    md_number_to_chars(buf, (int)newval, 4);
+    md_number_to_chars(buf, val, fixP->fx_size);
     break;
   default:
     as_fatal (_("Line %d: unknown relocation type: 0x%x."),
@@ -536,7 +689,7 @@ md_pcrel_from(fixS *fixP)
   valueT addr = fixP->fx_where + fixP->fx_frag->fr_address;
 
   switch (fixP->fx_r_type) {
-  case BFD_RELOC_16_PCREL:
+  case BFD_RELOC_BEXKAT1_15_PCREL:
     if (target_big_endian)
       return addr + 4;
     else
@@ -548,34 +701,74 @@ md_pcrel_from(fixS *fixP)
 }
 
 arelent *
-tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixp)
+tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixP)
 {
-  arelent *rel;
-  bfd_reloc_code_real_type r_type;
+  bfd_signed_vma val
+    = fixP->fx_offset
+    + (fixP->fx_addsy != NULL
+       && !S_IS_WEAK (fixP->fx_addsy)
+       && !S_IS_COMMON (fixP->fx_addsy)
+       ? S_GET_VALUE (fixP->fx_addsy) : 0);
+  arelent *relP;
+  bfd_reloc_code_real_type code = BFD_RELOC_NONE;
+  char *buf  = fixP->fx_where + fixP->fx_frag->fr_literal;
+  symbolS *addsy = fixP->fx_addsy;
+  asection *addsec = addsy == NULL ? NULL : S_GET_SEGMENT (addsy);
+  asymbol *baddsy = addsy != NULL ? symbol_get_bfdsym (addsy) : NULL;
+  bfd_vma addend
+    = val - (baddsy == NULL || S_IS_COMMON (addsy) || S_IS_WEAK (addsy)
+	     ? 0 : bfd_asymbol_value (baddsy));
 
-  rel = xmalloc(sizeof(arelent));
-  rel->sym_ptr_ptr = xmalloc(sizeof(asymbol *));
-  *rel->sym_ptr_ptr = symbol_get_bfdsym(fixp->fx_addsy);
-  rel->address = fixp->fx_frag->fr_address + fixp->fx_where;
+  switch (fixP->fx_r_type)
+    {
+    case BFD_RELOC_BEXKAT1_15:
+    case BFD_RELOC_32:
+      code = fixP->fx_r_type;
+      if (addsy == NULL || bfd_is_abs_section (addsec))
+	{
+	  /* Resolve this reloc now, as md_apply_fix would have done (not
+	     called if -linkrelax).  There is no point in keeping a reloc
+	     to an absolute symbol.  No reloc that is subject to
+	     relaxation must be to an absolute symbol; difference
+	     involving symbols in a specific section must be signalled as
+	     an error if the relaxing cannot be expressed; having a reloc
+	     to the resolved (now absolute) value does not help.  */
+	  md_number_to_chars (buf, val, fixP->fx_size);
+	  return NULL;
+	}
+      break;
 
-  r_type = fixp->fx_r_type;
+    case BFD_RELOC_BEXKAT1_15_PCREL:
+      code = fixP->fx_r_type;
+      break;
+    default:
+      as_bad_where
+	(fixP->fx_file, fixP->fx_line,
+	 _("operands were not reducible at assembly-time"));
+      fixP->fx_addsy = NULL;
+      return NULL;
+    }
 
-  rel->addend = fixp->fx_offset; 
-  rel->howto = bfd_reloc_type_lookup(stdoutput, r_type);
+  relP = (arelent *) xmalloc(sizeof(arelent));
+  gas_assert(relP != 0);
+  relP->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
+  *relP->sym_ptr_ptr = baddsy;
+  relP->address = fixP->fx_frag->fr_address + fixP->fx_where;
 
-  if (rel->howto == NULL) {
-    as_bad_where(fixp->fx_file, fixp->fx_line,
-                 _("Cannot represent relocation type %s"),
-                 bfd_get_reloc_code_name(r_type));
-    rel->howto = bfd_reloc_type_lookup(stdoutput, BFD_RELOC_32);
-    gas_assert(rel->howto != NULL);
-  }
+  relP->addend = addend; 
 
-  /* Since we use Rel instead of Rela, encode the vtable entry to be
-     used in the relocation's section offset.  */
-  if (fixp->fx_r_type == BFD_RELOC_VTABLE_INHERIT
-      || fixp->fx_r_type == BFD_RELOC_VTABLE_ENTRY)
-    rel->address = fixp->fx_offset;
+  relP->howto = bfd_reloc_type_lookup(stdoutput, code);
 
-  return rel;
+  if (relP->howto == NULL)
+    {
+      const char *name;
+      
+      name = S_GET_NAME (addsy);
+      if (name == NULL)
+	name = _("<unknown>");
+      as_fatal (_("cannot generate relocation type for symbol %s, code %s"),
+		name, bfd_get_reloc_code_name (code));
+    }
+
+  return relP;
 }

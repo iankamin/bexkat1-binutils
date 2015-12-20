@@ -3121,6 +3121,7 @@ to compensate for the borrow when the low bits are added.  */
 
 /* Bexkat1 ELF relocations.  */
   BFD_RELOC_BEXKAT_15,
+  BFD_RELOC_BEXKAT1_15_PCREL,
 
 /* Fujitsu Frv Relocations.  */
   BFD_RELOC_FRV_LABEL16,

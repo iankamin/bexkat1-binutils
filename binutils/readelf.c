@@ -94,6 +94,7 @@
 #include "elf/arc.h"
 #include "elf/arm.h"
 #include "elf/avr.h"
+#include "elf/bexkat1.h"
 #include "elf/bfin.h"
 #include "elf/cr16.h"
 #include "elf/cris.h"
@@ -737,6 +738,7 @@ guess_is_rela (unsigned int e_machine)
     case EM_ARC_COMPACT2:
     case EM_AVR:
     case EM_AVR_OLD:
+    case EM_BEXKAT1:
     case EM_BLACKFIN:
     case EM_CR16:
     case EM_CRIS:
@@ -1212,6 +1214,10 @@ dump_relocations (FILE * file,
 	case EM_AVR:
 	case EM_AVR_OLD:
 	  rtype = elf_avr_reloc_type (type);
+	  break;
+
+	case EM_BEXKAT1:
+	  rtype = elf_bexkat1_reloc_type (type);
 	  break;
 
 	case EM_OLD_SPARCV9:
@@ -2205,6 +2211,7 @@ get_machine_name (unsigned e_machine)
     case EM_MIPS_X:		return "Stanford MIPS-X";
     case EM_COLDFIRE:		return "Motorola Coldfire";
     case EM_ALPHA:		return "Alpha";
+    case EM_BEXKAT1:            return "Bexkat1";
     case EM_CYGNUS_D10V:
     case EM_D10V:		return "d10v";
     case EM_CYGNUS_D30V:
@@ -11656,6 +11663,8 @@ is_32bit_abs_reloc (unsigned int reloc_type)
     case EM_AVR_OLD:
     case EM_AVR:
       return reloc_type == 1;
+    case EM_BEXKAT1:
+      return reloc_type == 3;   /* R_BEXKAT1_32. */
     case EM_BLACKFIN:
       return reloc_type == 0x12; /* R_byte4_data.  */
     case EM_CRIS:
@@ -12045,6 +12054,7 @@ is_none_reloc (unsigned int reloc_type)
     {
     case EM_386:     /* R_386_NONE.  */
     case EM_68K:     /* R_68K_NONE.  */
+    case EM_BEXKAT1: /* R_BEXKAT1_NONE. */
     case EM_ADAPTEVA_EPIPHANY:
     case EM_ALPHA:   /* R_ALPHA_NONE.  */
     case EM_ALTERA_NIOS2: /* R_NIOS2_NONE.  */
