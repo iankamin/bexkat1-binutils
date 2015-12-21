@@ -25,6 +25,10 @@
 #include "libbfd.h"
 #include "elf-bfd.h"
 #include "elf/bexkat1.h"
+#include "opcode/bexkat1.h"
+
+#define JMP_INSN ((BEXKAT1_JUMP << 28) | 0x1)
+#define MAX_STUB_SIZE 8
 
 #define ELF_ARCH		bfd_arch_bexkat1
 #define ELF_MACHINE_CODE	EM_BEXKAT1
@@ -38,6 +42,13 @@
 static bfd_reloc_status_type
 bexkat1_elf_reloc (bfd *, arelent *, asymbol *, void *,
 			asection *, bfd *, char **);
+static bfd_boolean
+bexkat1_elf_new_section_hook (bfd *abfd, asection *sec);
+static bfd_boolean
+bexkat1_elf_relax_section (bfd *abfd,
+			   asection *sec,
+			   struct bfd_link_info *link_info,
+			   bfd_boolean *again);
 
 static reloc_howto_type bexkat1_elf_howto_table[] =
   {
@@ -65,11 +76,11 @@ static reloc_howto_type bexkat1_elf_howto_table[] =
 	  bexkat1_elf_reloc,      /* special_function */
 	  "R_BEXKAT1_15",         /* name */
 	  FALSE,                  /* partial_inplace */
-	  0xffff0001,             /* src_mask */
+	  ~0x0000fffe,            /* src_mask */
 	  0x0000fffe,             /* dst_mask */
 	  FALSE),                 /* pcrel_offset */
     HOWTO(R_BEXKAT1_PCREL_15,     /* type */
-	  0,                      /* rightshift */
+	  2,                      /* rightshift */
 	  2,                      /* size */
 	  15,                     /* bitsize */
 	  TRUE,                   /* pc_relative */
@@ -78,7 +89,7 @@ static reloc_howto_type bexkat1_elf_howto_table[] =
 	  bexkat1_elf_reloc,      /* special_function */
 	  "R_BEXKAT1_PCREL_15",   /* name */
 	  FALSE,                  /* partial_inplace */
-	  0xffff0001,             /* src_mask */
+	  ~0x0000fffe,            /* src_mask */
 	  0x0000fffe,             /* dst_mask */
 	  TRUE),                  /* pcrel_offset */
     HOWTO(R_BEXKAT1_32,           /* type */
@@ -97,10 +108,26 @@ static reloc_howto_type bexkat1_elf_howto_table[] =
   };
 
 struct elf_bexkat1_reloc_map
+{
+  bfd_reloc_code_real_type  bfd_reloc_val;
+  unsigned char             elf_reloc_val;
+};
+
+struct _bexkat1_elf_section_data
+{
+  struct bfd_elf_section_data elf;
+  struct bpo_reloc_section_info *reloc;
+  struct stub_info
   {
-    bfd_reloc_code_real_type  bfd_reloc_val;
-    unsigned char             elf_reloc_val;
-  };
+    bfd_size_type n_relocs;
+    bfd_size_type stubs_size_sum;
+    bfd_size_type *stub_size;
+    bfd_size_type stub_offset;
+  } stubs;
+};
+
+#define bexkat1_elf_section_data(sec) \
+  ((struct _bexkat1_elf_section_data *) elf_section_data (sec))
 
 static const struct elf_bexkat1_reloc_map bexkat1_reloc_map[] =
   {
@@ -109,6 +136,23 @@ static const struct elf_bexkat1_reloc_map bexkat1_reloc_map[] =
     { BFD_RELOC_BEXKAT1_15_PCREL,  R_BEXKAT1_PCREL_15 },
     { BFD_RELOC_32,        R_BEXKAT1_32 }
   };
+
+static bfd_boolean
+bexkat1_elf_new_section_hook (bfd *abfd, asection *sec)
+{
+  if (!sec->used_by_bfd)
+    {
+      struct _bexkat1_elf_section_data *sdata;
+      bfd_size_type amt = sizeof (*sdata);
+
+      sdata = bfd_zalloc (abfd, amt);
+      if (sdata == NULL)
+	return FALSE;
+      sec->used_by_bfd = sdata;
+    }
+
+  return _bfd_elf_new_section_hook (abfd, sec);
+}
 
 static reloc_howto_type *
 bexkat1_elf_reloc_type_lookup(bfd *abfd ATTRIBUTE_UNUSED,
@@ -131,38 +175,104 @@ bexkat1_elf_perform_relocation (asection *isec,
 				void *datap,
 				bfd_vma addr ATTRIBUTE_UNUSED,
 				bfd_vma value,
-				char **error_message)
+				char **error_message ATTRIBUTE_UNUSED)
 {
   bfd *abfd = isec->owner;
   bfd_reloc_status_type r;
 
-  if ((r = bfd_check_overflow(complain_overflow_signed,
-			     howto->bitsize,
-			     0,
-			     bfd_arch_bits_per_address (abfd),
-			      value)) == bfd_reloc_ok)
+  switch (howto->type)
     {
-      bfd_vma in1
-	= bfd_get_32 (abfd, (bfd_byte *) datap);
+    case R_BEXKAT1_PCREL_15:
+      {
+	if ((r = bfd_check_overflow(complain_overflow_signed,
+				    howto->bitsize,
+				    howto->rightshift,
+				    bfd_arch_bits_per_address (abfd),
+				    value)) == bfd_reloc_ok)
+	  {
+	    bfd_vma in1
+	      = bfd_get_32 (abfd, (bfd_byte *) datap);
+	    
+	    value >>= howto->rightshift;
+	    value &= 0x7fff;
+	    value <<= 1;
+	    bfd_put_32 (abfd,
+			(in1 & howto->src_mask) | (value & howto->dst_mask),
+			(bfd_byte *) datap);
+	    
+	    return bfd_reloc_ok;
+	  }
 
-      // modify the value to shift things around?
-      value &= 0x7fff;
-      value <<= 1;
-      bfd_put_32 (abfd,
-		  (in1 & howto->src_mask) | (value & howto->dst_mask),
-		  (bfd_byte *) datap);
-      
+	/*
+	bfd_size_type size = isec->rawsize ? isec->rawsize : isec->size;
+	bfd_byte *stubcontents
+	  = ((bfd_byte *) datap
+	     - (addr - (isec->output_section->vma + isec->output_offset))
+	     + size
+	     + bexkat1_elf_section_data (isec)->stubs.stub_offset);
+	bfd_vma stubaddr;
+
+	if (bexkat1_elf_section_data (isec)->stubs.n_relocs == 0)
+	  {
+	    fprintf(stderr, "something impossible happening\n");
+	    return bfd_reloc_dangerous;
+	  }
+	  
+	stubaddr = isec->output_section->vma
+	  + isec->output_offset
+	  + size
+	  + (bexkat1_elf_section_data (isec)
+	     ->stubs.stub_offset)
+	  - addr;
+
+	fprintf(stderr, "  addr = %08lx, stubaddr = %08lx\n",
+		addr, stubaddr);
+  
+	r = bexkat1_elf_perform_relocation (isec,
+				      &bexkat1_elf_howto_table
+				      [R_BEXKAT1_PCREL_15],
+				      datap,
+				      addr,
+				      isec->output_section->vma
+				      + isec->output_offset
+				      + size
+				      + (bexkat1_elf_section_data (isec)
+					 ->stubs.stub_offset)
+				      - addr,
+				      error_message);
+
+	if (r != bfd_reloc_ok)
+	  return r;
+
+	stubaddr
+	  = (isec->output_section->vma
+	     + isec->output_offset
+	     + size
+	     + bexkat1_elf_section_data (isec)->stubs.stub_offset);
+	
+	bfd_put_32 (abfd, JMP_INSN, stubcontents);
+	r = bexkat1_elf_perform_relocation (isec,
+					    &bexkat1_elf_howto_table
+					    [R_BEXKAT1_32],
+					    stubcontents,
+					    stubaddr,
+					    value + addr - stubaddr,
+					    error_message);
+	bexkat1_elf_section_data (isec)->stubs.stub_offset += 4;
+	
+	if (size + bexkat1_elf_section_data (isec)->stubs.stub_offset
+	    > isec->size)
+	  abort ();
+	*/
+	return r;
+      }
+    case R_BEXKAT1_32:
+      bfd_put_32 (abfd, 0, (bfd_byte *) datap);
       return bfd_reloc_ok;
     }
-  else
-    {
-      *error_message = _("hit the overflow in perform_relocation");
-      return bfd_reloc_overflow;
-      // find location of stub (where do they get created and when?)
-      // point the reloc to the stub
-      // fill in the stub with the relevant jump info
-    }
 
+  bfd_put_32 (abfd, 0x12341111, (bfd_byte *) datap);
+  return bfd_reloc_ok;
 }
 
 static bfd_reloc_status_type
@@ -377,7 +487,8 @@ bexkat1_elf_relocate_section (bfd *output_bfd,
 
 	  if (r_type == R_BEXKAT1_PCREL_15)
 	    {
-	      fprintf(stderr, "  need some code here...\n");
+	      fprintf(stderr, "bexkat1 relocate section wtf...\n");
+	      abort();
 	      // TODO: something
 	    } 
 	}
@@ -445,10 +556,10 @@ bexkat1_elf_check_relocs (bfd *abfd,
   struct elf_link_hash_entry **sym_hashes;
   const Elf_Internal_Rela *rel;
   const Elf_Internal_Rela *rel_end;
-  
+
   if (info->relocatable)
     return TRUE;
-  
+
   symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
   sym_hashes = elf_sym_hashes (abfd);
   
@@ -470,8 +581,40 @@ bexkat1_elf_check_relocs (bfd *abfd,
 
 	  h->root.non_ir_ref = 1;
 	}
+
+      switch (ELF32_R_TYPE (rel->r_info))
+	{
+	case R_BEXKAT1_PCREL_15:
+	  bexkat1_elf_section_data (sec)->stubs.n_relocs++;
+	  break;
+	}
+    }
+
+  if (bexkat1_elf_section_data (sec)->stubs.n_relocs != 0)
+    {
+      size_t i;
+      bexkat1_elf_section_data (sec)->stubs.stub_size
+	= bfd_alloc (abfd, bexkat1_elf_section_data (sec)->stubs.n_relocs
+		     * sizeof (bexkat1_elf_section_data (sec)
+			       ->stubs.stub_size[0]));
+      if (bexkat1_elf_section_data (sec)->stubs.stub_size == NULL)
+	return FALSE;
+
+      for (i = 0; i < bexkat1_elf_section_data (sec)->stubs.n_relocs; i++)
+	bexkat1_elf_section_data (sec)->stubs.stub_size[i] = MAX_STUB_SIZE;
+
     }
   
+  return TRUE;
+}
+
+static bfd_boolean
+bexkat1_elf_relax_section (bfd *abfd ATTRIBUTE_UNUSED,
+			   asection *sec ATTRIBUTE_UNUSED,
+			   struct bfd_link_info *link_info ATTRIBUTE_UNUSED,
+			   bfd_boolean *again ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "bexkat1_elf_relax_section()\n");
   return TRUE;
 }
 
@@ -484,7 +627,8 @@ bexkat1_elf_check_relocs (bfd *abfd,
 #define elf_backend_relocate_section    bexkat1_elf_relocate_section
 #define elf_backend_check_relocs        bexkat1_elf_check_relocs
 
-//#define bfd_elf32_bfd_relax_section     bexkat1_elf_relax_section
+#define bfd_elf32_new_section_hook      bexkat1_elf_new_section_hook
+#define bfd_elf32_bfd_relax_section     bexkat1_elf_relax_section
 #define bfd_elf32_bfd_reloc_type_lookup bexkat1_elf_reloc_type_lookup
 #define bfd_elf32_bfd_reloc_name_lookup bexkat1_elf_reloc_name_lookup
 #include "elf32-target.h"
