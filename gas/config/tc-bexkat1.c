@@ -284,9 +284,11 @@ md_assemble(char *str)
     break;
   case BEXKAT1_CMP:
   case BEXKAT1_MOV:
+  case BEXKAT1_FPU:
   case BEXKAT1_FP:
   case BEXKAT1_ALU:
   case BEXKAT1_INT:
+  case BEXKAT1_INTU:
     regnum = parse_regnum(&op_end);
     if (regnum == -1)
       return; 
@@ -360,14 +362,14 @@ md_assemble(char *str)
 		  (p - frag_now->fr_literal),
 		  4,
 		  &arg,
-		  0,
+		  TRUE,
 		  BFD_RELOC_BEXKAT1_15_PCREL);
     else
       fix_new_exp(frag_now,
 		  (p - frag_now->fr_literal),
 		  4,
 		  &arg,
-		  0,
+		  TRUE,
 		  BFD_RELOC_BEXKAT1_15_PCREL);
     break;
   case BEXKAT1_LOAD:
@@ -638,10 +640,10 @@ md_apply_fix(fixS *fixP, valueT *valP, segT segment)
   case BFD_RELOC_BEXKAT1_15_PCREL:
     if (!val)
       break;
-    if ((val % 3) != 0)
+    if ((val % 4) != 0)
       {
-	as_warn_where(fixP->fx_file, fixP->fx_line,
-		      _("alignment failure for reloc"));
+	as_warn(_("alignment failure for reloc: %ld"),
+		val);
 	fixP->fx_done = 0;
 	val = 0;
       }
@@ -710,35 +712,22 @@ md_pcrel_from(fixS *fixP)
   valueT addr = fixP->fx_where + fixP->fx_frag->fr_address;
 
   switch (fixP->fx_r_type) {
-  case BFD_RELOC_BEXKAT1_15_PCREL:
-    if (target_big_endian)
+    case BFD_RELOC_BEXKAT1_15_PCREL:
       return addr + 4;
-    else
-      return addr;
-  default:
-    abort();
+    default:
+      abort();
   }
+
   return addr;
 }
 
 arelent *
 tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixP)
 {
-  bfd_signed_vma val
-    = fixP->fx_offset
-    + (fixP->fx_addsy != NULL
-       && !S_IS_WEAK (fixP->fx_addsy)
-       && !S_IS_COMMON (fixP->fx_addsy)
-       ? S_GET_VALUE (fixP->fx_addsy) : 0);
   arelent *relP;
   bfd_reloc_code_real_type code = BFD_RELOC_NONE;
-  char *buf  = fixP->fx_where + fixP->fx_frag->fr_literal;
   symbolS *addsy = fixP->fx_addsy;
   asection *addsec = addsy == NULL ? NULL : S_GET_SEGMENT (addsy);
-  asymbol *baddsy = addsy != NULL ? symbol_get_bfdsym (addsy) : NULL;
-  bfd_vma addend
-    = val - (baddsy == NULL || S_IS_COMMON (addsy) || S_IS_WEAK (addsy)
-	     ? 0 : bfd_asymbol_value (baddsy));
 
   switch (fixP->fx_r_type)
     {
@@ -754,7 +743,8 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixP)
 	     involving symbols in a specific section must be signalled as
 	     an error if the relaxing cannot be expressed; having a reloc
 	     to the resolved (now absolute) value does not help.  */
-	  md_number_to_chars (buf, val, fixP->fx_size);
+	  char *buf  = fixP->fx_where + fixP->fx_frag->fr_literal;
+	  md_number_to_chars (buf, fixP->fx_offset, fixP->fx_size);
 	  return NULL;
 	}
       break;
@@ -773,10 +763,10 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixP)
   relP = (arelent *) xmalloc(sizeof(arelent));
   gas_assert(relP != 0);
   relP->sym_ptr_ptr = (asymbol **) xmalloc (sizeof (asymbol *));
-  *relP->sym_ptr_ptr = baddsy;
+  *relP->sym_ptr_ptr = addsy != NULL ? symbol_get_bfdsym (addsy) : NULL;
   relP->address = fixP->fx_frag->fr_address + fixP->fx_where;
 
-  relP->addend = addend; 
+  relP->addend = fixP->fx_offset; 
 
   relP->howto = bfd_reloc_type_lookup(stdoutput, code);
 
@@ -784,7 +774,7 @@ tc_gen_reloc(asection *section ATTRIBUTE_UNUSED, fixS *fixP)
     {
       const char *name;
       
-      name = S_GET_NAME (addsy);
+      name = S_GET_NAME (fixP->fx_addsy);
       if (name == NULL)
 	name = _("<unknown>");
       as_fatal (_("cannot generate relocation type for symbol %s, code %s"),

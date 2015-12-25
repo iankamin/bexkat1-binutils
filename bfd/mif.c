@@ -136,7 +136,7 @@ mif_write_object_contents (bfd *abfd)
 	  if (count > 4)
 	    now = 4;
 
-	  if (! mif_write_record (abfd, now, where - 0xfffe0000, p))
+	  if (! mif_write_record (abfd, now, where - 0x70000000, p))
 	    return FALSE;
 
 	  where += now;

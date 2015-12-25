@@ -124,6 +124,9 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
   case BEXKAT1_PUSH:
   case BEXKAT1_POP:
   case BEXKAT1_JUMP:
+    if (opcode->args == 0) {
+      fpr(stream, "%s", opcode->name);
+    }
     if (opcode->args == 1) {
       fpr(stream, "%s ", opcode->name);
       if (opcode->size)
@@ -142,6 +145,8 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
     break;
   case BEXKAT1_CMP:
   case BEXKAT1_MOV:
+  case BEXKAT1_FPU:
+  case BEXKAT1_INTU:
   case BEXKAT1_FP:
   case BEXKAT1_ALU:
   case BEXKAT1_INT:

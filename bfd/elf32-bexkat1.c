@@ -58,7 +58,7 @@ static reloc_howto_type bexkat1_elf_howto_table[] =
 	  2,                      /* size */
 	  32,                     /* bitsize */
 	  FALSE,                  /* pc_relative */
-	  0,                      /* bitops */
+	  0,                      /* bitpos */
 	  complain_overflow_dont, /* complain_on_overflow */
 	  bexkat1_elf_reloc,      /* special_function */
 	  "R_BEXKAT1_NONE",       /* name */
@@ -71,12 +71,12 @@ static reloc_howto_type bexkat1_elf_howto_table[] =
 	  2,                      /* size */
 	  15,                     /* bitsize */
 	  FALSE,                  /* pc_relative */
-	  0,                      /* bitops */
+	  1,                      /* bitpos */
 	  complain_overflow_bitfield, /* complain_on_overflow */
 	  bexkat1_elf_reloc,      /* special_function */
 	  "R_BEXKAT1_15",         /* name */
 	  FALSE,                  /* partial_inplace */
-	  ~0x0000fffe,            /* src_mask */
+	  0x0000fffe,             /* src_mask */
 	  0x0000fffe,             /* dst_mask */
 	  FALSE),                 /* pcrel_offset */
     HOWTO(R_BEXKAT1_PCREL_15,     /* type */
@@ -84,12 +84,12 @@ static reloc_howto_type bexkat1_elf_howto_table[] =
 	  2,                      /* size */
 	  15,                     /* bitsize */
 	  TRUE,                   /* pc_relative */
-	  0,                      /* bitops */
+	  1,                      /* bitpos */
 	  complain_overflow_signed, /* complain_on_overflow */
 	  bexkat1_elf_reloc,      /* special_function */
 	  "R_BEXKAT1_PCREL_15",   /* name */
 	  FALSE,                  /* partial_inplace */
-	  ~0x0000fffe,            /* src_mask */
+	  0x0000fffe,             /* src_mask */
 	  0x0000fffe,             /* dst_mask */
 	  TRUE),                  /* pcrel_offset */
     HOWTO(R_BEXKAT1_32,           /* type */
