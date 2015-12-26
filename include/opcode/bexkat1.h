@@ -34,9 +34,11 @@
 #define BEXKAT1_INT    7
 #define BEXKAT1_LDI    8
 #define BEXKAT1_LOAD   9
-#define BEXKAT1_STORE 10
+#define BEXKAT1_STORE  10
 #define BEXKAT1_BRANCH 11
-#define BEXKAT1_JUMP 12
+#define BEXKAT1_JUMP   12
+#define BEXKAT1_INTU   13
+#define BEXKAT1_FPU    14
 
 /*
  * tttt oooo aaaa bbbb cccc xxxx xxx0
