@@ -195,6 +195,8 @@ md_assemble(char *str)
     }
     break;
   case BEXKAT1_PUSH:
+    if (opcode->args == 1 && opcode->opcode == 2) // bsr
+      goto branch;
     if (opcode->args == 1) {
       if (opcode->size) {
 	op_end = parse_exp_save_ilp(op_end, &arg);
@@ -354,6 +356,7 @@ md_assemble(char *str)
       md_number_to_chars(p, iword, 4);
     }
     break;
+branch:
   case BEXKAT1_BRANCH:
     md_number_to_chars(p, iword, 4);
     op_end = parse_exp_save_ilp(op_end, &arg);

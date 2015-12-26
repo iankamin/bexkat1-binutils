@@ -17,6 +17,7 @@ const bexkat1_opc_info_t bexkat1_opc_info[] =
     { BEXKAT1_PUSH, 0, 0, 1, "push" },
     { BEXKAT1_PUSH, 1, 1, 1, "jsrd" },
     { BEXKAT1_PUSH, 1, 0, 2, "jsr" },
+    { BEXKAT1_PUSH, 2, 0, 1, "bsr" },
     { BEXKAT1_POP, 0, 0, 1, "pop" },
     { BEXKAT1_POP, 1, 0, 0, "rts" },
     { BEXKAT1_POP, 2, 0, 0, "rti" },

@@ -122,6 +122,11 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
     }
     break;
   case BEXKAT1_PUSH:
+    if (opcode->opcode == 2 && opcode->args == 1) {
+      fpr(stream, "%s ", opcode->name);
+      info->print_address_func(memaddr + (offset << 2) + 4, info);
+      break;
+    }
   case BEXKAT1_POP:
   case BEXKAT1_JUMP:
     if (opcode->args == 0) {
@@ -196,7 +201,7 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
       if (opcode->size)
 	fpr(stream, "%d", imm32);
       else
-	fpr(stream, "%d", offset);
+	fpr(stream, "%d", offset & 0x7fff);
     }
     break;
   }
