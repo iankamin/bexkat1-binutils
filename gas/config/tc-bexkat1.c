@@ -629,13 +629,6 @@ md_apply_fix(fixS *fixP, valueT *valP, segT segment)
   case BFD_RELOC_BEXKAT1_15:
     if (!val)
       break;
-    /* This was addressed in gcc, but it's possible this could still
-       impact someone using the assembler directly.  It's mainly the
-       fact that this reloc is used by both a signed offset as well
-       as the unsigned value for a ldiu */
-    if (val < -16384 || val > 16383)
-      as_warn_where(fixP->fx_file, fixP->fx_line,
-		    _("operand may be out of 15 bit range for reloc"));
     val = md_chars_to_number(buf, fixP->fx_size)
       | ((val & 0x7fff) << 1);
     md_number_to_chars(buf, val, fixP->fx_size);
