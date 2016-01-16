@@ -117,7 +117,7 @@ mif_write_object_contents (bfd *abfd)
   // support additional MIF depths, but right now I just need 32k x 32.
   if (bfd_bwrite (begin, (bfd_size_type) strlen(begin), abfd) != strlen(begin))
     return FALSE;
-  
+
   for (l = abfd->tdata.mif_data->head; l != NULL; l = l->next)
     {
       bfd_vma where;
@@ -136,7 +136,7 @@ mif_write_object_contents (bfd *abfd)
 	  if (count > 4)
 	    now = 4;
 
-	  if (! mif_write_record (abfd, now, where - 0x70000000, p))
+	  if (! mif_write_record (abfd, now, where - abfd->start_address, p))
 	    return FALSE;
 
 	  where += now;
