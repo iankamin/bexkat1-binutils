@@ -47,11 +47,6 @@ SECTIONS
     *(COMMON)
     ${RELOCATING+ _end = . ;  }
   } ${RELOCATING+ > ram}
-  .stack ${RELOCATING+ 0x08000000 }  :
-  {
-    ${RELOCATING+ _stack = . ; }
-    *(.stack)
-  } ${RELOCATING+ > ram}
   .stab 0 ${RELOCATING+(NOLOAD)} :
   {
     *(.stab)
