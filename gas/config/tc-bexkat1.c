@@ -517,7 +517,7 @@ branch:
 /* Turn a string in input_line_pointer into a floating point constant of type
    type. */
 
-char *
+const char *
 md_atof(int type, char *litP, int *sizeP)
 {
   int prec;
@@ -566,7 +566,7 @@ struct option md_longopts[] =
 size_t md_longopts_size = sizeof(md_longopts);
 
 int
-md_parse_option(int c, char *arg ATTRIBUTE_UNUSED)
+md_parse_option(int c, const char *arg ATTRIBUTE_UNUSED)
 {
   target_big_endian = 1;
   switch (c) {

@@ -1890,6 +1890,7 @@ bfd_flavour_name (enum bfd_flavour flavour)
     case bfd_target_pef_flavour: return "PEF";
     case bfd_target_pef_xlib_flavour: return "PEF_XLIB";
     case bfd_target_sym_flavour: return "SYM";
+    case bfd_target_mif_flavour: return "MIF";
     /* There is no "default" case here so that -Wswitch (part of -Wall)
        catches missing entries.  */
     }
