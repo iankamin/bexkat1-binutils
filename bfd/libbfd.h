@@ -1221,7 +1221,7 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
   "BFD_RELOC_FT32_17",
   "BFD_RELOC_FT32_18",
 
-  "BFD_RELOC_BEXKAT_15",
+  "BFD_RELOC_BEXKAT1_15",
   "BFD_RELOC_BEXKAT1_15_PCREL",
 
   "BFD_RELOC_FRV_LABEL16",

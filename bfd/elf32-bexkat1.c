@@ -500,19 +500,18 @@ bexkat1_elf_relocate_section (bfd *output_bfd,
 
       if (r != bfd_reloc_ok)
 	{
-	  bfd_boolean check_ok = TRUE;
 	  const char * msg = (const char *)NULL;
 
 	  switch (r)
 	    {
 	    case bfd_reloc_overflow:
-	      check_ok = info->callbacks->reloc_overflow
+	      (*info->callbacks->reloc_overflow)
 		(info, (h ? &h->root : NULL), name, howto->name,
 		 (bfd_vma) 0, input_bfd, input_section, rel->r_offset);
 	      break;
 
 	    case bfd_reloc_undefined:
-	      check_ok = info->callbacks->undefined_symbol
+	      (*info->callbacks->undefined_symbol)
 		(info, name, input_bfd, input_section, rel->r_offset,
 		 TRUE);
 	      break;
@@ -535,11 +534,8 @@ bexkat1_elf_relocate_section (bfd *output_bfd,
 	    }
 
 	  if (msg)
-	    r = info->callbacks->warning
+	    (*info->callbacks->warning)
 	      (info, msg, name, input_bfd, input_section, rel->r_offset);
-
-	  if (! check_ok)
-	    return FALSE;
 	}
     }
 
