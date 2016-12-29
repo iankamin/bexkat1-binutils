@@ -298,20 +298,22 @@ md_assemble(char *str)
       op_end++;
     iword |= (regnum & 0xf) << 20; // A
 
-    if (*op_end != ',') {
-      as_bad(_("missing comma: %s"), op_end);
-      return;
-    }
-    op_end++;
-    while (ISSPACE(*op_end))
+    if (opcode->args > 1) {
+      if (*op_end != ',') {
+        as_bad(_("missing comma: %s"), op_end);
+        return;
+      }
       op_end++;
+      while (ISSPACE(*op_end))
+        op_end++;
     
-    regnum = parse_regnum(&op_end);
-    if (regnum == -1)
-      return; 
-    while (ISSPACE(*op_end))
-      op_end++;
-    iword |= (regnum & 0xf) << 16; // B
+      regnum = parse_regnum(&op_end);
+      if (regnum == -1)
+        return; 
+      while (ISSPACE(*op_end))
+        op_end++;
+      iword |= (regnum & 0xf) << 16; // B
+    }
 
     if (opcode->args > 2) {
 
