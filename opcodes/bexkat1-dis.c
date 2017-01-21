@@ -148,12 +148,12 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
 	    print_reg_name((iword >> 16) & 0xf));
     }
     break;
-  case BEXKAT1_CMP:
   case BEXKAT1_MOV:
     if (opcode->opcode == 0) {
       fpr(stream, "%s %s", opcode->name, print_reg_name((iword >> 16) & 0xf));
       break;
     }
+  case BEXKAT1_CMP:
   case BEXKAT1_FPU:
   case BEXKAT1_INTU:
   case BEXKAT1_FP:
