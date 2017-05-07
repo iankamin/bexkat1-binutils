@@ -240,7 +240,7 @@ md_assemble(char *str)
 	return; 
       while (ISSPACE(*op_end))
 	op_end++;
-      iword |= (regnum & 0xf) << 16; // B
+      iword |= (regnum & 0xf) << 20; // A
       
       if (*op_end != ')') {
 	as_bad(_("missing close paren: %s"), op_end);
