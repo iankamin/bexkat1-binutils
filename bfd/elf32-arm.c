@@ -1,5 +1,5 @@
 /* 32-bit ELF support for ARM
-   Copyright (C) 1998-2016 Free Software Foundation, Inc.
+   Copyright (C) 1998-2017 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -3158,10 +3158,6 @@ struct elf32_arm_link_hash_table
   /* How many R_ARM_TLS_DESC relocations were generated so far.  */
   bfd_vma num_tls_desc;
 
-  /* Short-cuts to get to dynamic linker sections.  */
-  asection *sdynbss;
-  asection *srelbss;
-
   /* The (unloaded but important) VxWorks .rela.plt.unloaded section.  */
   asection *srelplt2;
 
@@ -3245,12 +3241,13 @@ ctz (unsigned int mask)
 }
 
 static inline int
-popcount (unsigned int mask)
+elf32_arm_popcount (unsigned int mask)
 {
 #if GCC_VERSION >= 3004
   return __builtin_popcount (mask);
 #else
-  unsigned int i, sum = 0;
+  unsigned int i;
+  int sum = 0;
 
   for (i = 0; i < 8 * sizeof (mask); i++)
     {
@@ -3570,9 +3567,7 @@ using_thumb_only (struct elf32_arm_link_hash_table *globals)
   arch = bfd_elf_get_obj_attr_int (globals->obfd, OBJ_ATTR_PROC, Tag_CPU_arch);
 
   /* Force return logic to be reviewed for each new architecture.  */
-  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8
-	      || arch == TAG_CPU_ARCH_V8M_BASE
-	      || arch == TAG_CPU_ARCH_V8M_MAIN);
+  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8M_MAIN);
 
   if (arch == TAG_CPU_ARCH_V6_M
       || arch == TAG_CPU_ARCH_V6S_M
@@ -3599,14 +3594,13 @@ using_thumb2 (struct elf32_arm_link_hash_table *globals)
   arch = bfd_elf_get_obj_attr_int (globals->obfd, OBJ_ATTR_PROC, Tag_CPU_arch);
 
   /* Force return logic to be reviewed for each new architecture.  */
-  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8
-	      || arch == TAG_CPU_ARCH_V8M_BASE
-	      || arch == TAG_CPU_ARCH_V8M_MAIN);
+  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8M_MAIN);
 
   return (arch == TAG_CPU_ARCH_V6T2
 	  || arch == TAG_CPU_ARCH_V7
 	  || arch == TAG_CPU_ARCH_V7E_M
 	  || arch == TAG_CPU_ARCH_V8
+	  || arch == TAG_CPU_ARCH_V8R
 	  || arch == TAG_CPU_ARCH_V8M_MAIN);
 }
 
@@ -3619,9 +3613,7 @@ using_thumb2_bl (struct elf32_arm_link_hash_table *globals)
     bfd_elf_get_obj_attr_int (globals->obfd, OBJ_ATTR_PROC, Tag_CPU_arch);
 
   /* Force return logic to be reviewed for each new architecture.  */
-  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8
-	      || arch == TAG_CPU_ARCH_V8M_BASE
-	      || arch == TAG_CPU_ARCH_V8M_MAIN);
+  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8M_MAIN);
 
   /* Architecture was introduced after ARMv6T2 (eg. ARMv6-M).  */
   return (arch == TAG_CPU_ARCH_V6T2
@@ -3646,11 +3638,6 @@ elf32_arm_create_dynamic_sections (bfd *dynobj, struct bfd_link_info *info)
 
   if (!_bfd_elf_create_dynamic_sections (dynobj, info))
     return FALSE;
-
-  htab->sdynbss = bfd_get_linker_section (dynobj, ".dynbss");
-  if (!bfd_link_pic (info))
-    htab->srelbss = bfd_get_linker_section (dynobj,
-					    RELOC_SECTION (htab, ".bss"));
 
   if (htab->vxworks_p)
     {
@@ -3693,8 +3680,8 @@ elf32_arm_create_dynamic_sections (bfd *dynobj, struct bfd_link_info *info)
 
   if (!htab->root.splt
       || !htab->root.srelplt
-      || !htab->sdynbss
-      || (!bfd_link_pic (info) && !htab->srelbss))
+      || !htab->root.sdynbss
+      || (!bfd_link_pic (info) && !htab->root.srelbss))
     abort ();
 
   return TRUE;
@@ -3832,14 +3819,13 @@ arch_has_arm_nop (struct elf32_arm_link_hash_table *globals)
 					     Tag_CPU_arch);
 
   /* Force return logic to be reviewed for each new architecture.  */
-  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8
-	      || arch == TAG_CPU_ARCH_V8M_BASE
-	      || arch == TAG_CPU_ARCH_V8M_MAIN);
+  BFD_ASSERT (arch <= TAG_CPU_ARCH_V8M_MAIN);
 
   return (arch == TAG_CPU_ARCH_V6T2
 	  || arch == TAG_CPU_ARCH_V6K
 	  || arch == TAG_CPU_ARCH_V7
-	  || arch == TAG_CPU_ARCH_V8);
+	  || arch == TAG_CPU_ARCH_V8
+	  || arch == TAG_CPU_ARCH_V8R);
 }
 
 static bfd_boolean
@@ -3998,8 +3984,7 @@ arm_type_of_stub (struct bfd_link_info *info,
 	 - it's a Thumb->Arm call and blx is not available, or it's a
 	   Thumb->Arm branch (not bl). A stub is needed in this case,
 	   but only if this call is not through a PLT entry. Indeed,
-	   PLT stubs handle mode switching already.
-      */
+	   PLT stubs handle mode switching already.  */
       if ((!thumb2_bl
 	    && (branch_offset > THM_MAX_FWD_BRANCH_OFFSET
 		|| (branch_offset < THM_MAX_BWD_BRANCH_OFFSET)))
@@ -4021,10 +4006,11 @@ arm_type_of_stub (struct bfd_link_info *info,
 	     PLT, use one that branches directly to the ARM PLT
 	     stub. If we pretended we'd use the pre-PLT Thumb->ARM
 	     stub, undo this now.  */
-	  if ((branch_type == ST_BRANCH_TO_THUMB) && use_plt && !thumb_only) {
-	    branch_type = ST_BRANCH_TO_ARM;
-	    branch_offset += PLT_THUMB_STUB_SIZE;
-	  }
+	  if ((branch_type == ST_BRANCH_TO_THUMB) && use_plt && !thumb_only)
+	    {
+	      branch_type = ST_BRANCH_TO_ARM;
+	      branch_offset += PLT_THUMB_STUB_SIZE;
+	    }
 
 	  if (branch_type == ST_BRANCH_TO_THUMB)
 	    {
@@ -4032,13 +4018,12 @@ arm_type_of_stub (struct bfd_link_info *info,
 	      if (!thumb_only)
 		{
 		  if (input_sec->flags & SEC_ELF_PURECODE)
-		    _bfd_error_handler (_("%B(%s): warning: long branch "
-					  " veneers used in section with "
-					  "SHF_ARM_PURECODE section "
-					  "attribute is only supported"
-					  " for M-profile targets that "
-					  "implement the movw "
-					  "instruction."));
+		    _bfd_error_handler
+		      (_("%B(%A): warning: long branch veneers used in"
+			 " section with SHF_ARM_PURECODE section"
+			 " attribute is only supported for M-profile"
+			 " targets that implement the movw instruction."),
+		       input_bfd, input_sec);
 
 		  stub_type = (bfd_link_pic (info) | globals->pic_veneer)
 		    /* PIC stubs.  */
@@ -4067,13 +4052,12 @@ arm_type_of_stub (struct bfd_link_info *info,
 		  else
 		    {
 		      if (input_sec->flags & SEC_ELF_PURECODE)
-			_bfd_error_handler (_("%B(%s): warning: long branch "
-					      " veneers used in section with "
-					      "SHF_ARM_PURECODE section "
-					      "attribute is only supported"
-					      " for M-profile targets that "
-					      "implement the movw "
-					      "instruction."));
+			_bfd_error_handler
+			  (_("%B(%A): warning: long branch veneers used in"
+			     " section with SHF_ARM_PURECODE section"
+			     " attribute is only supported for M-profile"
+			     " targets that implement the movw instruction."),
+			   input_bfd, input_sec);
 
 		      stub_type = (bfd_link_pic (info) | globals->pic_veneer)
 			/* PIC stub.  */
@@ -4087,13 +4071,12 @@ arm_type_of_stub (struct bfd_link_info *info,
 	  else
 	    {
 	      if (input_sec->flags & SEC_ELF_PURECODE)
-		_bfd_error_handler (_("%B(%s): warning: long branch "
-				      " veneers used in section with "
-				      "SHF_ARM_PURECODE section "
-				      "attribute is only supported"
-				      " for M-profile targets that "
-				      "implement the movw "
-				      "instruction."));
+		_bfd_error_handler
+		  (_("%B(%A): warning: long branch veneers used in"
+		     " section with SHF_ARM_PURECODE section"
+		     " attribute is only supported" " for M-profile"
+		     " targets that implement the movw instruction."),
+		   input_bfd, input_sec);
 
 	      /* Thumb to arm.  */
 	      if (sym_sec != NULL
@@ -4103,7 +4086,7 @@ arm_type_of_stub (struct bfd_link_info *info,
 		  _bfd_error_handler
 		    (_("%B(%s): warning: interworking not enabled.\n"
 		       "  first occurrence: %B: Thumb call to ARM"),
-		     sym_sec->owner, input_bfd, name);
+		     sym_sec->owner, name, input_bfd);
 		}
 
 	      stub_type =
@@ -4140,13 +4123,12 @@ arm_type_of_stub (struct bfd_link_info *info,
 	   || r_type == R_ARM_TLS_CALL)
     {
       if (input_sec->flags & SEC_ELF_PURECODE)
-	_bfd_error_handler (_("%B(%s): warning: long branch "
-			      " veneers used in section with "
-			      "SHF_ARM_PURECODE section "
-			      "attribute is only supported"
-			      " for M-profile targets that "
-			      "implement the movw "
-			      "instruction."));
+	_bfd_error_handler
+	  (_("%B(%A): warning: long branch veneers used in"
+	     " section with SHF_ARM_PURECODE section"
+	     " attribute is only supported for M-profile"
+	     " targets that implement the movw instruction."),
+	   input_bfd, input_sec);
       if (branch_type == ST_BRANCH_TO_THUMB)
 	{
 	  /* Arm to thumb.  */
@@ -4505,7 +4487,7 @@ elf32_arm_add_stub (const char *stub_name, asection *section,
     {
       if (section == NULL)
 	section = stub_sec;
-      _bfd_error_handler (_("%s: cannot create stub entry %s"),
+      _bfd_error_handler (_("%B: cannot create stub entry %s"),
 			  section->owner, stub_name);
       return NULL;
     }
@@ -6642,7 +6624,7 @@ elf32_arm_size_stubs (bfd *output_bfd,
 					     TRUE, FALSE);
 	  if (stub_entry == NULL)
 	    {
-	      _bfd_error_handler (_("%s: cannot create stub entry %s"),
+	      _bfd_error_handler (_("%B: cannot create stub entry %s"),
 				  section->owner, stub_name);
 	      return FALSE;
 	    }
@@ -8502,7 +8484,7 @@ stm32l4xx_need_create_replacing_stub (const insn32 insn,
   /* The field encoding the register list is the same for both LDMIA
      and LDMDB encodings.  */
   if (is_thumb2_ldmia (insn) || is_thumb2_ldmdb (insn))
-    nb_words = popcount (insn & 0x0000ffff);
+    nb_words = elf32_arm_popcount (insn & 0x0000ffff);
   else if (is_thumb2_vldm (insn))
    nb_words = (insn & 0xff);
 
@@ -8632,11 +8614,13 @@ bfd_elf32_arm_stm32l4xx_erratum_scan (bfd *abfd,
 			if (is_not_last_in_it_block)
 			  {
 			    _bfd_error_handler
-			      /* Note - overlong line used here to allow for translation.  */
-			      (_("\
-%B(%A+0x%lx): error: multiple load detected in non-last IT block instruction : STM32L4XX veneer cannot be generated.\n"
-				 "Use gcc option -mrestrict-it to generate only one instruction per IT block.\n"),
-			       abfd, sec, (long)i);
+			      /* xgettext:c-format */
+			      (_("%B(%A+0x%lx): error: multiple load detected"
+				 " in non-last IT block instruction :"
+				 " STM32L4XX veneer cannot be generated.\n"
+				 "Use gcc option -mrestrict-it to generate"
+				 " only one instruction per IT block.\n"),
+			       abfd, sec, (long) i);
 			  }
 			else
 			  {
@@ -8821,7 +8805,7 @@ elf32_thumb_to_arm_stub (struct bfd_link_info * info,
 	  _bfd_error_handler
 	    (_("%B(%s): warning: interworking not enabled.\n"
 	       "  first occurrence: %B: Thumb call to ARM"),
-	     sym_sec->owner, input_bfd, name);
+	     sym_sec->owner, name, input_bfd);
 
 	  return FALSE;
 	}
@@ -8911,7 +8895,7 @@ elf32_arm_create_thumb_stub (struct bfd_link_info * info,
 	  _bfd_error_handler
 	    (_("%B(%s): warning: interworking not enabled.\n"
 	       "  first occurrence: %B: arm call to thumb"),
-	     sym_sec->owner, input_bfd, name);
+	     sym_sec->owner, name, input_bfd);
 	}
 
       --my_offset;
@@ -9735,7 +9719,8 @@ elf32_arm_tls_relax (struct elf32_arm_link_hash_table *globals,
 	    insn = (insn << 16)
 	      | bfd_get_16 (input_bfd, contents + rel->r_offset + 2);
 	  _bfd_error_handler
-	    (_("%B(%A+0x%lx):unexpected Thumb instruction '0x%x' in TLS trampoline"),
+	    /* xgettext:c-format */
+	    (_("%B(%A+0x%lx): unexpected Thumb instruction '0x%x' in TLS trampoline"),
 	     input_bfd, input_sec, (unsigned long)rel->r_offset, insn);
 	  return bfd_reloc_notsupported;
 	}
@@ -9774,7 +9759,8 @@ elf32_arm_tls_relax (struct elf32_arm_link_hash_table *globals,
       else
 	{
 	  _bfd_error_handler
-	    (_("%B(%A+0x%lx):unexpected ARM instruction '0x%x' in TLS trampoline"),
+	    /* xgettext:c-format */
+	    (_("%B(%A+0x%lx): unexpected ARM instruction '0x%x' in TLS trampoline"),
 	     input_bfd, input_sec, (unsigned long)rel->r_offset, insn);
 	  return bfd_reloc_notsupported;
 	}
@@ -10041,6 +10027,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
     case R_ARM_ABS12:
       if (!globals->vxworks_p)
 	return elf32_arm_abs12_reloc (input_bfd, hit_data, value + addend);
+      /* Fall through.  */
 
     case R_ARM_PC24:
     case R_ARM_ABS32:
@@ -10149,7 +10136,8 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 	  else if (h != NULL
 		   && h->dynindx != -1
 		   && (!bfd_link_pic (info)
-		       || !SYMBOLIC_BIND (info, h)
+		       || !(bfd_link_pie (info)
+			    || SYMBOLIC_BIND (info, h))
 		       || !h->def_regular))
 	    outrel.r_info = ELF32_R_INFO (h->dynindx, r_type);
 	  else
@@ -10512,10 +10500,16 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 			  + input_section->output_offset
 			  + rel->r_offset);
 
-	value = relocation;
+	/* PR 21523: Use an absolute value.  The user of this reloc will
+	   have already selected an ADD or SUB insn appropriately.  */
+	value = labs (relocation);
 
 	if (value >= 0x1000)
 	  return bfd_reloc_overflow;
+
+	/* Destination is Thumb.  Force bit 0 to 1 to reflect this.  */
+	if (branch_type == ST_BRANCH_TO_THUMB)
+	  value |= 1;
 
 	insn = (insn & 0xfb0f8f00) | (value & 0xff)
 	     | ((value & 0x700) << 4)
@@ -11529,7 +11523,8 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 		else
 		  {
 		    _bfd_error_handler
-		      (_("%B(%A+0x%lx):unexpected Thumb instruction '0x%x' referenced by TLS_GOTDESC"),
+		      /* xgettext:c-format */
+		      (_("%B(%A+0x%lx): unexpected Thumb instruction '0x%x' referenced by TLS_GOTDESC"),
 		       input_bfd, input_section,
 		       (unsigned long)rel->r_offset, insn);
 		    return bfd_reloc_notsupported;
@@ -11552,7 +11547,8 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 
 		  default:
 		    _bfd_error_handler
-		      (_("%B(%A+0x%lx):unexpected ARM instruction '0x%x' referenced by TLS_GOTDESC"),
+		      /* xgettext:c-format */
+		      (_("%B(%A+0x%lx): unexpected ARM instruction '0x%x' referenced by TLS_GOTDESC"),
 		       input_bfd, input_section,
 		       (unsigned long)rel->r_offset, insn);
 		    return bfd_reloc_notsupported;
@@ -11581,6 +11577,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
       if (bfd_link_dll (info))
 	{
 	  _bfd_error_handler
+	    /* xgettext:c-format */
 	    (_("%B(%A+0x%lx): R_ARM_TLS_LE32 relocation not permitted in shared object"),
 	     input_bfd, input_section,
 	     (long) rel->r_offset, howto->name);
@@ -11794,6 +11791,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 	    if (negative == 0)
 	      {
 		_bfd_error_handler
+		  /* xgettext:c-format */
 		  (_("%B(%A+0x%lx): Only ADD or SUB instructions are allowed for ALU group relocations"),
 		  input_bfd, input_section,
 		  (long) rel->r_offset, howto->name);
@@ -11834,6 +11832,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 	     || r_type == R_ARM_ALU_SB_G2) && residual != 0)
 	  {
 	    _bfd_error_handler
+	      /* xgettext:c-format */
 	      (_("%B(%A+0x%lx): Overflow whilst splitting 0x%lx for group relocation %s"),
 	      input_bfd, input_section,
 	       (long) rel->r_offset, signed_value < 0 ? - signed_value : signed_value,
@@ -11924,6 +11923,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 	if (residual >= 0x1000)
 	  {
 	    _bfd_error_handler
+	      /* xgettext:c-format */
 	      (_("%B(%A+0x%lx): Overflow whilst splitting 0x%lx for group relocation %s"),
 	       input_bfd, input_section,
 	       (long) rel->r_offset, labs (signed_value), howto->name);
@@ -12009,6 +12009,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 	if (residual >= 0x100)
 	  {
 	    _bfd_error_handler
+	      /* xgettext:c-format */
 	      (_("%B(%A+0x%lx): Overflow whilst splitting 0x%lx for group relocation %s"),
 	       input_bfd, input_section,
 	       (long) rel->r_offset, labs (signed_value), howto->name);
@@ -12096,6 +12097,7 @@ elf32_arm_final_link_relocate (reloc_howto_type *           howto,
 	if ((residual & 0x3) != 0 || residual >= 0x400)
 	  {
 	    _bfd_error_handler
+	      /* xgettext:c-format */
 	      (_("%B(%A+0x%lx): Overflow whilst splitting 0x%lx for group relocation %s"),
 	      input_bfd, input_section,
 	      (long) rel->r_offset, labs (signed_value), howto->name);
@@ -12359,6 +12361,7 @@ elf32_arm_relocate_section (bfd *                  output_bfd,
 			  || (howto->src_mask & (howto->src_mask + 1)))
 			{
 			  _bfd_error_handler
+			    /* xgettext:c-format */
 			    (_("%B(%A+0x%lx): %s relocation against SEC_MERGE section"),
 			     input_bfd, input_section,
 			     (long) rel->r_offset, howto->name);
@@ -12470,7 +12473,9 @@ elf32_arm_relocate_section (bfd *                  output_bfd,
 	{
 	  _bfd_error_handler
 	    ((sym_type == STT_TLS
+	      /* xgettext:c-format */
 	      ? _("%B(%A+0x%lx): %s used with TLS symbol %s")
+	      /* xgettext:c-format */
 	      : _("%B(%A+0x%lx): %s used with non-TLS symbol %s")),
 	     input_bfd,
 	     input_section,
@@ -12523,6 +12528,7 @@ elf32_arm_relocate_section (bfd *                  output_bfd,
 				      rel->r_offset) != (bfd_vma) -1)
 	{
 	  _bfd_error_handler
+	    /* xgettext:c-format */
 	    (_("%B(%A+0x%lx): unresolvable %s relocation against symbol `%s'"),
 	     input_bfd,
 	     input_section,
@@ -13317,6 +13323,25 @@ tag_cpu_arch_combine (bfd *ibfd, int oldtag, int *secondary_compat_out,
       T(V8),		/* V7E_M.  */
       T(V8)		/* V8.  */
     };
+  const int v8r[] =
+    {
+      T(V8R),		/* PRE_V4.  */
+      T(V8R),		/* V4.  */
+      T(V8R),		/* V4T.  */
+      T(V8R),		/* V5T.  */
+      T(V8R),		/* V5TE.  */
+      T(V8R),		/* V5TEJ.  */
+      T(V8R),		/* V6.  */
+      T(V8R),		/* V6KZ.  */
+      T(V8R),		/* V6T2.  */
+      T(V8R),		/* V6K.  */
+      T(V8R),		/* V7.  */
+      T(V8R),		/* V6_M.  */
+      T(V8R),		/* V6S_M.  */
+      T(V8R),		/* V7E_M.  */
+      T(V8),		/* V8.  */
+      T(V8R),		/* V8R.  */
+    };
   const int v8m_baseline[] =
     {
       -1,		/* PRE_V4.  */
@@ -13334,7 +13359,7 @@ tag_cpu_arch_combine (bfd *ibfd, int oldtag, int *secondary_compat_out,
       T(V8M_BASE),	/* V6S_M.  */
       -1,		/* V7E_M.  */
       -1,		/* V8.  */
-      -1,
+      -1,		/* V8R.  */
       T(V8M_BASE)	/* V8-M BASELINE.  */
     };
   const int v8m_mainline[] =
@@ -13354,7 +13379,7 @@ tag_cpu_arch_combine (bfd *ibfd, int oldtag, int *secondary_compat_out,
       T(V8M_MAIN),	/* V6S_M.  */
       T(V8M_MAIN),	/* V7E_M.  */
       -1,		/* V8.  */
-      -1,
+      -1,		/* V8R.  */
       T(V8M_MAIN),	/* V8-M BASELINE.  */
       T(V8M_MAIN)	/* V8-M MAINLINE.  */
     };
@@ -13375,7 +13400,7 @@ tag_cpu_arch_combine (bfd *ibfd, int oldtag, int *secondary_compat_out,
       T(V6S_M),		/* V6S_M.  */
       T(V7E_M),		/* V7E_M.  */
       T(V8),		/* V8.  */
-      -1,		/* Unused.  */
+      -1,		/* V8R.  */
       T(V8M_BASE),	/* V8-M BASELINE.  */
       T(V8M_MAIN),	/* V8-M MAINLINE.  */
       T(V4T_PLUS_V6_M)	/* V4T plus V6_M.  */
@@ -13389,7 +13414,7 @@ tag_cpu_arch_combine (bfd *ibfd, int oldtag, int *secondary_compat_out,
       v6s_m,
       v7e_m,
       v8,
-      NULL,
+      v8r,
       v8m_baseline,
       v8m_mainline,
       /* Pseudo-architecture.  */
@@ -13491,8 +13516,9 @@ elf32_arm_attributes_forbid_div (const obj_attribute *attr)
    are conflicting attributes.  */
 
 static bfd_boolean
-elf32_arm_merge_eabi_attributes (bfd *ibfd, bfd *obfd)
+elf32_arm_merge_eabi_attributes (bfd *ibfd, struct bfd_link_info *info)
 {
+  bfd *obfd = info->output_bfd;
   obj_attribute *in_attr;
   obj_attribute *out_attr;
   /* Some tags have 0 = don't care, 1 = strong requirement,
@@ -13812,6 +13838,9 @@ elf32_arm_merge_eabi_attributes (bfd *ibfd, bfd *obfd)
 		 follow the requirement of the input.  */
 	      if (out_attr[i].i == 0)
 		{
+		  /* This assert is still reasonable, we shouldn't
+		     produce the suspicious build attribute
+		     combination (See below for in_attr).  */
 		  BFD_ASSERT (out_attr[Tag_ABI_HardFP_use].i == 0);
 		  out_attr[i].i = in_attr[i].i;
 		  out_attr[Tag_ABI_HardFP_use].i
@@ -13822,7 +13851,13 @@ elf32_arm_merge_eabi_attributes (bfd *ibfd, bfd *obfd)
 		 nothing.  */
 	      else if (in_attr[i].i == 0)
 		{
-		  BFD_ASSERT (in_attr[Tag_ABI_HardFP_use].i == 0);
+		  /* We used to assert that Tag_ABI_HardFP_use was
+		     zero here, but we should never assert when
+		     consuming an object file that has suspicious
+		     build attributes.  The single precision variant
+		     of 'no FP architecture' is still 'no FP
+		     architecture', so we just ignore the tag in this
+		     case.  */
 		  break;
 		}
 
@@ -14047,7 +14082,7 @@ elf32_arm_merge_eabi_attributes (bfd *ibfd, bfd *obfd)
     }
 
   /* Merge Tag_compatibility attributes and any common GNU ones.  */
-  if (!_bfd_elf_merge_object_attributes (ibfd, obfd))
+  if (!_bfd_elf_merge_object_attributes (ibfd, info))
     return FALSE;
 
   /* Check for any attributes not known on ARM.  */
@@ -14075,7 +14110,7 @@ elf32_arm_versions_compatible (unsigned iver, unsigned over)
    object file when linking.  */
 
 static bfd_boolean
-elf32_arm_merge_private_bfd_data (bfd * ibfd, bfd * obfd);
+elf32_arm_merge_private_bfd_data (bfd *, struct bfd_link_info *);
 
 /* Display the flags field.  */
 
@@ -14094,7 +14129,6 @@ elf32_arm_print_private_bfd_data (bfd *abfd, void * ptr)
   /* Ignore init flag - it may not be set, despite the flags field
      containing valid data.  */
 
-  /* xgettext:c-format */
   fprintf (file, _("private flags = %lx:"), elf_elfheader (abfd)->e_flags);
 
   switch (EF_ARM_EABI_VERSION (flags))
@@ -14546,7 +14580,7 @@ elf32_arm_check_relocs (bfd *abfd, struct bfd_link_info *info,
 
 	      /* PR15323, ref flags aren't set for references in the
 		 same object.  */
-	      h->root.non_ir_ref = 1;
+	      h->root.non_ir_ref_regular = 1;
 	    }
 	}
 
@@ -14946,15 +14980,15 @@ elf32_arm_update_relocs (asection *o,
 		{
 		  arm_unwind_table_edit *edit_node, *edit_next;
 		  bfd_vma bias;
-		  bfd_vma index;
+		  bfd_vma reloc_index;
 
 		  (*swap_in) (abfd, erela, irela);
-		  index = (irela->r_offset - offset) / 8;
+		  reloc_index = (irela->r_offset - offset) / 8;
 
 		  bias = 0;
 		  edit_node = edit_list;
 		  for (edit_next = edit_list;
-		       edit_next && edit_next->index <= index;
+		       edit_next && edit_next->index <= reloc_index;
 		       edit_next = edit_node->next)
 		    {
 		      bias++;
@@ -14962,7 +14996,7 @@ elf32_arm_update_relocs (asection *o,
 		    }
 
 		  if (edit_node->type != DELETE_EXIDX_ENTRY
-		      || edit_node->index != index)
+		      || edit_node->index != reloc_index)
 		    {
 		      irela->r_offset -= bias * 8;
 		      irela++;
@@ -15261,7 +15295,7 @@ elf32_arm_adjust_dynamic_symbol (struct bfd_link_info * info,
 				 struct elf_link_hash_entry * h)
 {
   bfd * dynobj;
-  asection * s;
+  asection *s, *srel;
   struct elf32_arm_link_hash_entry * eh;
   struct elf32_arm_link_hash_table *globals;
 
@@ -15360,20 +15394,24 @@ elf32_arm_adjust_dynamic_symbol (struct bfd_link_info * info,
      determine the address it must put in the global offset table, so
      both the dynamic object and the regular object will refer to the
      same memory location for the variable.  */
-  s = bfd_get_linker_section (dynobj, ".dynbss");
-  BFD_ASSERT (s != NULL);
-
   /* If allowed, we must generate a R_ARM_COPY reloc to tell the dynamic
      linker to copy the initial value out of the dynamic object and into
      the runtime process image.  We need to remember the offset into the
      .rel(a).bss section we are going to use.  */
+  if ((h->root.u.def.section->flags & SEC_READONLY) != 0)
+    {
+      s = globals->root.sdynrelro;
+      srel = globals->root.sreldynrelro;
+    }
+  else
+    {
+      s = globals->root.sdynbss;
+      srel = globals->root.srelbss;
+    }
   if (info->nocopyreloc == 0
       && (h->root.u.def.section->flags & SEC_ALLOC) != 0
       && h->size != 0)
     {
-      asection *srel;
-
-      srel = bfd_get_linker_section (dynobj, RELOC_SECTION (globals, ".bss"));
       elf32_arm_allocate_dynrelocs (info, srel, 1);
       h->needs_copy = 1;
     }
@@ -16014,9 +16052,7 @@ elf32_arm_size_dynamic_sections (bfd * output_bfd ATTRIBUTE_UNUSED,
       if (!bfd_elf32_arm_process_before_allocation (ibfd, info)
 	  || !bfd_elf32_arm_vfp11_erratum_scan (ibfd, info)
 	  || !bfd_elf32_arm_stm32l4xx_erratum_scan (ibfd, info))
-	/* xgettext:c-format */
-	_bfd_error_handler (_("Errors encountered processing file %s"),
-			    ibfd->filename);
+	_bfd_error_handler (_("Errors encountered processing file %B"), ibfd);
     }
 
   /* Allocate space for the glue sections now that we've sized them.  */
@@ -16089,7 +16125,8 @@ elf32_arm_size_dynamic_sections (bfd * output_bfd ATTRIBUTE_UNUSED,
 	       && s != htab->root.sgotplt
 	       && s != htab->root.iplt
 	       && s != htab->root.igotplt
-	       && s != htab->sdynbss)
+	       && s != htab->root.sdynbss
+	       && s != htab->root.sdynrelro)
 	{
 	  /* It's not one of our sections, so don't allocate space.  */
 	  continue;
@@ -16299,14 +16336,15 @@ elf32_arm_finish_dynamic_symbol (bfd * output_bfd,
 		  && (h->root.type == bfd_link_hash_defined
 		      || h->root.type == bfd_link_hash_defweak));
 
-      s = htab->srelbss;
-      BFD_ASSERT (s != NULL);
-
       rel.r_addend = 0;
       rel.r_offset = (h->root.u.def.value
 		      + h->root.u.def.section->output_section->vma
 		      + h->root.u.def.section->output_offset);
       rel.r_info = ELF32_R_INFO (h->dynindx, R_ARM_COPY);
+      if (h->root.u.def.section == htab->root.sdynrelro)
+	s = htab->root.sreldynrelro;
+      else
+	s = htab->root.srelbss;
       elf32_arm_add_dynreloc (output_bfd, info, s, &rel);
     }
 
@@ -16480,35 +16518,15 @@ elf32_arm_finish_dynamic_sections (bfd * output_bfd, struct bfd_link_info * info
 
 	    case DT_RELSZ:
 	    case DT_RELASZ:
-	      if (!htab->symbian_p)
-		{
-		  /* My reading of the SVR4 ABI indicates that the
-		     procedure linkage table relocs (DT_JMPREL) should be
-		     included in the overall relocs (DT_REL).  This is
-		     what Solaris does.  However, UnixWare can not handle
-		     that case.  Therefore, we override the DT_RELSZ entry
-		     here to make it not include the JMPREL relocs.  Since
-		     the linker script arranges for .rel(a).plt to follow all
-		     other relocation sections, we don't have to worry
-		     about changing the DT_REL entry.  */
-		  s = htab->root.srelplt;
-		  if (s != NULL)
-		    dyn.d_un.d_val -= s->size;
-		  bfd_elf32_swap_dyn_out (output_bfd, &dyn, dyncon);
-		  break;
-		}
-	      /* Fall through.  */
-
 	    case DT_REL:
 	    case DT_RELA:
 	      /* In the BPABI, the DT_REL tag must point at the file
 		 offset, not the VMA, of the first relocation
 		 section.  So, we use code similar to that in
 		 elflink.c, but do not check for SHF_ALLOC on the
-		 relcoation section, since relocations sections are
-		 never allocated under the BPABI.  The comments above
-		 about Unixware notwithstanding, we include all of the
-		 relocations here.  */
+		 relocation section, since relocation sections are
+		 never allocated under the BPABI.  PLT relocs are also
+		 included.  */
 	      if (htab->symbian_p)
 		{
 		  unsigned int i;
@@ -17508,6 +17526,10 @@ elf32_arm_filter_implib_symbols (bfd *abfd ATTRIBUTE_UNUSED,
 {
   struct elf32_arm_link_hash_table *globals = elf32_arm_hash_table (info);
 
+  /* Requirement 8 of "ARM v8-M Security Extensions: Requirements on
+     Development Tools" (ARM-ECM-0359818) mandates Secure Gateway import
+     library to be a relocatable object file.  */
+  BFD_ASSERT (!(bfd_get_file_flags (info->out_implib_bfd) & EXEC_P));
   if (globals->cmse_implib)
     return elf32_arm_filter_cmse_symbols (abfd, info, syms, symcount);
   else
@@ -17913,7 +17935,7 @@ stm32l4xx_create_replacing_stub_ldmia (struct elf32_arm_link_hash_table * htab,
   int insn_all_registers = initial_insn & 0x0000ffff;
   int insn_low_registers, insn_high_registers;
   int usable_register_mask;
-  int nb_registers = popcount (insn_all_registers);
+  int nb_registers = elf32_arm_popcount (insn_all_registers);
   int restore_pc = (insn_all_registers & (1 << 15)) ? 1 : 0;
   int restore_rn = (insn_all_registers & (1 << rn)) ? 1 : 0;
   bfd_byte *current_stub_contents = base_stub_contents;
@@ -17957,7 +17979,7 @@ stm32l4xx_create_replacing_stub_ldmia (struct elf32_arm_link_hash_table * htab,
   BFD_ASSERT (!wback || !restore_rn);
 
   /* - nb_registers > 8.  */
-  BFD_ASSERT (popcount (insn_all_registers) > 8);
+  BFD_ASSERT (elf32_arm_popcount (insn_all_registers) > 8);
 
   /* At this point, LDMxx initial insn loads between 9 and 14 registers.  */
 
@@ -18059,7 +18081,7 @@ stm32l4xx_create_replacing_stub_ldmdb (struct elf32_arm_link_hash_table * htab,
   int usable_register_mask;
   int restore_pc = (insn_all_registers & (1 << 15)) ? 1 : 0;
   int restore_rn = (insn_all_registers & (1 << rn)) ? 1 : 0;
-  int nb_registers = popcount (insn_all_registers);
+  int nb_registers = elf32_arm_popcount (insn_all_registers);
   bfd_byte *current_stub_contents = base_stub_contents;
 
   BFD_ASSERT (is_thumb2_ldmdb (initial_insn));
@@ -18100,7 +18122,7 @@ stm32l4xx_create_replacing_stub_ldmdb (struct elf32_arm_link_hash_table * htab,
   BFD_ASSERT (!wback || !restore_rn);
 
   /* - nb_registers > 8.  */
-  BFD_ASSERT (popcount (insn_all_registers) > 8);
+  BFD_ASSERT (elf32_arm_popcount (insn_all_registers) > 8);
 
   /* At this point, LDMxx initial insn loads between 9 and 14 registers.  */
 
@@ -19407,9 +19429,11 @@ elf32_arm_backend_symbol_processing (bfd *abfd, asymbol *sym)
 #define elf_backend_plt_readonly       1
 #define elf_backend_want_got_plt       1
 #define elf_backend_want_plt_sym       0
+#define elf_backend_want_dynrelro      1
 #define elf_backend_may_use_rel_p      1
 #define elf_backend_may_use_rela_p     0
 #define elf_backend_default_use_rela_p 0
+#define elf_backend_dtrel_excludes_plt 1
 
 #define elf_backend_got_header_size	12
 #define elf_backend_extern_protected_data 1
@@ -19594,21 +19618,22 @@ elf32_arm_vxworks_final_write_processing (bfd *abfd, bfd_boolean linker)
    object file when linking.  */
 
 static bfd_boolean
-elf32_arm_merge_private_bfd_data (bfd * ibfd, bfd * obfd)
+elf32_arm_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
 {
+  bfd *obfd = info->output_bfd;
   flagword out_flags;
   flagword in_flags;
   bfd_boolean flags_compatible = TRUE;
   asection *sec;
 
   /* Check if we have the same endianness.  */
-  if (! _bfd_generic_verify_endian_match (ibfd, obfd))
+  if (! _bfd_generic_verify_endian_match (ibfd, info))
     return FALSE;
 
   if (! is_arm_elf (ibfd) || ! is_arm_elf (obfd))
     return TRUE;
 
-  if (!elf32_arm_merge_eabi_attributes (ibfd, obfd))
+  if (!elf32_arm_merge_eabi_attributes (ibfd, info))
     return FALSE;
 
   /* The input BFD must have had its flags initialised.  */
@@ -19704,9 +19729,8 @@ elf32_arm_merge_private_bfd_data (bfd * ibfd, bfd * obfd)
     {
       _bfd_error_handler
 	(_("error: Source object %B has EABI version %d, but target %B has EABI version %d"),
-	 ibfd, obfd,
-	 (in_flags & EF_ARM_EABIMASK) >> 24,
-	 (out_flags & EF_ARM_EABIMASK) >> 24);
+	 ibfd, (in_flags & EF_ARM_EABIMASK) >> 24,
+	 obfd, (out_flags & EF_ARM_EABIMASK) >> 24);
       return FALSE;
     }
 
@@ -19720,9 +19744,8 @@ elf32_arm_merge_private_bfd_data (bfd * ibfd, bfd * obfd)
 	{
 	  _bfd_error_handler
 	    (_("error: %B is compiled for APCS-%d, whereas target %B uses APCS-%d"),
-	     ibfd, obfd,
-	     in_flags & EF_ARM_APCS_26 ? 26 : 32,
-	     out_flags & EF_ARM_APCS_26 ? 26 : 32);
+	     ibfd, in_flags & EF_ARM_APCS_26 ? 26 : 32,
+	     obfd, out_flags & EF_ARM_APCS_26 ? 26 : 32);
 	  flags_compatible = FALSE;
 	}
 
@@ -19970,6 +19993,8 @@ elf32_arm_symbian_plt_sym_val (bfd_vma i, const asection *plt,
 #define elf_backend_default_use_rela_p	0
 #undef  elf_backend_want_plt_sym
 #define elf_backend_want_plt_sym	0
+#undef  elf_backend_dtrel_excludes_plt
+#define elf_backend_dtrel_excludes_plt	0
 #undef  ELF_MAXPAGESIZE
 #define ELF_MAXPAGESIZE			0x8000
 

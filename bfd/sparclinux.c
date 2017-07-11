@@ -1,5 +1,5 @@
 /* BFD back-end for linux flavored sparc a.out binaries.
-   Copyright (C) 1992-2016 Free Software Foundation, Inc.
+   Copyright (C) 1992-2017 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -417,6 +417,7 @@ linux_tally_symbols (struct linux_link_hash_entry *h, void * data)
 	  p = strrchr (alloc, '_');
 	  *p++ = '\0';
 	  _bfd_error_handler
+	    /* xgettext:c-format */
 	    (_("Output file requires shared library `%s.so.%s'\n"),
 	     alloc, p);
 	  free (alloc);

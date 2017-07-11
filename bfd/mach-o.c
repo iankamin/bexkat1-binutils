@@ -1,5 +1,5 @@
 /* Mach-O support for BFD.
-   Copyright (C) 1999-2016 Free Software Foundation, Inc.
+   Copyright (C) 1999-2017 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -1898,7 +1898,7 @@ bfd_mach_o_write_symtab_content (bfd *abfd, bfd_mach_o_symtab_command *sym)
   if (bfd_seek (abfd, sym->stroff, SEEK_SET) != 0)
     goto err;
 
-  if (_bfd_stringtab_emit (abfd, strtab) != TRUE)
+  if (!_bfd_stringtab_emit (abfd, strtab))
     goto err;
 
   /* Pad string table.  */
@@ -2816,6 +2816,7 @@ bfd_mach_o_build_exec_seg_command (bfd *abfd, bfd_mach_o_segment_command *seg)
       if (s->addr < vma)
 	{
 	  _bfd_error_handler
+	    /* xgettext:c-format */
 	    (_("section address (%lx) below start of segment (%lx)"),
 	       (unsigned long) s->addr, (unsigned long) vma);
 	  return FALSE;
@@ -3586,6 +3587,7 @@ bfd_mach_o_read_symtab_symbol (bfd *abfd,
       || bfd_bread (&raw, symwidth, abfd) != symwidth)
     {
       _bfd_error_handler
+	/* xgettext:c-format */
         (_("bfd_mach_o_read_symtab_symbol: unable to read %d bytes at %lu"),
          symwidth, (unsigned long) symoff);
       return FALSE;
@@ -3604,6 +3606,7 @@ bfd_mach_o_read_symtab_symbol (bfd *abfd,
   if (stroff >= sym->strsize)
     {
       _bfd_error_handler
+	/* xgettext:c-format */
         (_("bfd_mach_o_read_symtab_symbol: name out of range (%lu >= %lu)"),
          (unsigned long) stroff,
          (unsigned long) sym->strsize);
@@ -3686,6 +3689,7 @@ bfd_mach_o_read_symtab_symbol (bfd *abfd,
 	      if (section != 0)
 		{
 		  _bfd_error_handler
+		    /* xgettext:c-format */
 		    (_("bfd_mach_o_read_symtab_symbol: "
 		       "symbol \"%s\" specified invalid section %d (max %lu): "
 		       "setting to undefined"),
@@ -3704,6 +3708,7 @@ bfd_mach_o_read_symtab_symbol (bfd *abfd,
 	  break;
 	default:
 	  _bfd_error_handler
+	    /* xgettext:c-format */
 	    (_("bfd_mach_o_read_symtab_symbol: "
 	       "symbol \"%s\" specified invalid type field 0x%x: "
 	       "setting to undefined"), s->symbol.name, symtype);
@@ -4941,6 +4946,7 @@ bfd_mach_o_scan (bfd *abfd,
   if (cputype == bfd_arch_unknown)
     {
       _bfd_error_handler
+	/* xgettext:c-format */
         (_("bfd_mach_o_scan: unknown architecture 0x%lx/0x%lx"),
          header->cputype, header->cpusubtype);
       return FALSE;
@@ -5635,9 +5641,9 @@ bfd_mach_o_core_file_failing_signal (bfd *abfd ATTRIBUTE_UNUSED)
 static bfd_mach_o_uuid_command *
 bfd_mach_o_lookup_uuid_command (bfd *abfd)
 {
-  bfd_mach_o_load_command *uuid_cmd;
+  bfd_mach_o_load_command *uuid_cmd = NULL;
   int ncmd = bfd_mach_o_lookup_command (abfd, BFD_MACH_O_LC_UUID, &uuid_cmd);
-  if (ncmd != 1)
+  if (ncmd != 1 || uuid_cmd == NULL)
     return FALSE;
   return &uuid_cmd->command.uuid;
 }

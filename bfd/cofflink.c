@@ -1,5 +1,5 @@
 /* COFF specific linker code.
-   Copyright (C) 1994-2016 Free Software Foundation, Inc.
+   Copyright (C) 1994-2017 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Cygnus Support.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -345,7 +345,7 @@ coff_link_add_symbols (bfd *abfd,
 		      && (*sym_hash)->root.type != bfd_link_hash_undefined
 		      && (*sym_hash)->root.type != bfd_link_hash_undefweak)
 		    _bfd_error_handler
-		      ("Warning: symbol `%s' is both section and non-section",
+		      (_("Warning: symbol `%s' is both section and non-section"),
 		       name);
 
 		  addit = FALSE;
@@ -446,8 +446,10 @@ coff_link_add_symbols (bfd *abfd,
   		               && (BTYPE ((*sym_hash)->type) == T_NULL
   		                   || BTYPE (sym.n_type) == T_NULL)))
 			_bfd_error_handler
-  			  (_("Warning: type of symbol `%s' changed from %d to %d in %B"),
-  			   abfd, name, (*sym_hash)->type, sym.n_type);
+			  /* xgettext: c-format */
+			  (_("Warning: type of symbol `%s' changed"
+			     " from %d to %d in %B"),
+			   name, (*sym_hash)->type, sym.n_type, abfd);
 
   		      /* We don't want to change from a meaningful
   			 base type to a null one, but if we know
@@ -2363,6 +2365,7 @@ _bfd_coff_link_input_bfd (struct coff_final_link_info *flaginfo, bfd *input_bfd)
 	      && o->reloc_count != 0)
 	    {
 	      _bfd_error_handler
+		/* xgettext: c-format */
 		(_("%B: relocs in section `%A', but it has no contents"),
 		 input_bfd, o);
 	      bfd_set_error (bfd_error_no_contents);
@@ -2425,6 +2428,7 @@ _bfd_coff_link_input_bfd (struct coff_final_link_info *flaginfo, bfd *input_bfd)
 	      /* Complain if definition comes from an excluded section.  */
 	      if (ps->flags & SEC_EXCLUDE)
 		(*flaginfo->info->callbacks->einfo)
+		  /* xgettext: c-format */
 		  (_("%X`%s' referenced in section `%A' of %B: "
 		     "defined in discarded section `%A' of %B\n"),
 		   h->root.root.string, o, input_bfd, ps, ps->owner);
@@ -2722,19 +2726,17 @@ _bfd_coff_write_global_sym (struct bfd_hash_entry *bh, void *data)
 		  && (! obj_pe (output_bfd)
 		      || bfd_link_relocatable (flaginfo->info)))
 		_bfd_error_handler
-		  (_("%s: %s: reloc overflow: 0x%lx > 0xffff"),
-		   bfd_get_filename (output_bfd),
-		   bfd_get_section_name (output_bfd, sec),
-		   sec->reloc_count);
+		  /* xgettext: c-format */
+		  (_("%B: %A: reloc overflow: 0x%lx > 0xffff"),
+		   output_bfd, sec, sec->reloc_count);
 
 	      if (sec->lineno_count > 0xffff
 		  && (! obj_pe (output_bfd)
 		      || bfd_link_relocatable (flaginfo->info)))
 		_bfd_error_handler
-		  (_("%s: warning: %s: line number overflow: 0x%lx > 0xffff"),
-		   bfd_get_filename (output_bfd),
-		   bfd_get_section_name (output_bfd, sec),
-		   sec->lineno_count);
+		  /* xgettext: c-format */
+		  (_("%B: warning: %A: line number overflow: 0x%lx > 0xffff"),
+		   output_bfd, sec, sec->lineno_count);
 
 	      auxp->x_scn.x_nreloc = sec->reloc_count;
 	      auxp->x_scn.x_nlinno = sec->lineno_count;
@@ -2955,7 +2957,8 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 	       || (unsigned long) symndx >= obj_raw_syment_count (input_bfd))
 	{
 	  _bfd_error_handler
-	    ("%B: illegal symbol index %ld in relocs", input_bfd, symndx);
+	    /* xgettext: c-format */
+	    (_("%B: illegal symbol index %ld in relocs"), input_bfd, symndx);
 	  return FALSE;
 	}
       else
@@ -3116,8 +3119,9 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 	  break;
 	case bfd_reloc_outofrange:
 	  _bfd_error_handler
+	    /* xgettext: c-format */
 	    (_("%B: bad reloc address 0x%lx in section `%A'"),
-	     input_bfd, input_section, (unsigned long) rel->r_vaddr);
+	     input_bfd, (unsigned long) rel->r_vaddr, input_section);
 	  return FALSE;
 	case bfd_reloc_overflow:
 	  {

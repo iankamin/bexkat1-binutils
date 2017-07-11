@@ -1,5 +1,5 @@
 /* Low level interface to ptrace, for the remote server for GDB.
-   Copyright (C) 1995-2016 Free Software Foundation, Inc.
+   Copyright (C) 1995-2017 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -47,6 +47,9 @@
 #include "tracepoint.h"
 #include "hostio.h"
 #include <inttypes.h>
+#include "common-inferior.h"
+#include "nat/fork-inferior.h"
+#include "environ.h"
 #ifndef ELFMAG0
 /* Don't include <linux/elf.h> here.  If it got included by gdb_proc_service.h
    then ELFMAG0 will have been defined.  If it didn't get included by
@@ -589,6 +592,11 @@ handle_extended_wait (struct lwp_info **orig_event_lwp, int wstat)
 	  event_lwp->status_pending_p = 1;
 	  event_lwp->status_pending = wstat;
 
+	  /* Link the threads until the parent event is passed on to
+	     higher layers.  */
+	  event_lwp->fork_relative = child_lwp;
+	  child_lwp->fork_relative = event_lwp;
+
 	  /* If the parent thread is doing step-over with single-step
 	     breakpoints, the list of single-step breakpoints are cloned
 	     from the parent's.  Remove them from the child process.
@@ -941,59 +949,57 @@ add_lwp (ptid_t ptid)
   return lwp;
 }
 
+/* Callback to be used when calling fork_inferior, responsible for
+   actually initiating the tracing of the inferior.  */
+
+static void
+linux_ptrace_fun ()
+{
+  if (ptrace (PTRACE_TRACEME, 0, (PTRACE_TYPE_ARG3) 0,
+	      (PTRACE_TYPE_ARG4) 0) < 0)
+    trace_start_error_with_name ("ptrace");
+
+  if (setpgid (0, 0) < 0)
+    trace_start_error_with_name ("setpgid");
+
+  /* If GDBserver is connected to gdb via stdio, redirect the inferior's
+     stdout to stderr so that inferior i/o doesn't corrupt the connection.
+     Also, redirect stdin to /dev/null.  */
+  if (remote_connection_is_stdio ())
+    {
+      if (close (0) < 0)
+	trace_start_error_with_name ("close");
+      if (open ("/dev/null", O_RDONLY) < 0)
+	trace_start_error_with_name ("open");
+      if (dup2 (2, 1) < 0)
+	trace_start_error_with_name ("dup2");
+      if (write (2, "stdin/stdout redirected\n",
+		 sizeof ("stdin/stdout redirected\n") - 1) < 0)
+	{
+	  /* Errors ignored.  */;
+	}
+    }
+}
+
 /* Start an inferior process and returns its pid.
-   ALLARGS is a vector of program-name and args. */
+   PROGRAM is the name of the program to be started, and PROGRAM_ARGS
+   are its arguments.  */
 
 static int
-linux_create_inferior (char *program, char **allargs)
+linux_create_inferior (const char *program,
+		       const std::vector<char *> &program_args)
 {
   struct lwp_info *new_lwp;
   int pid;
   ptid_t ptid;
   struct cleanup *restore_personality
     = maybe_disable_address_space_randomization (disable_randomization);
+  std::string str_program_args = stringify_argv (program_args);
 
-#if defined(__UCLIBC__) && defined(HAS_NOMMU)
-  pid = vfork ();
-#else
-  pid = fork ();
-#endif
-  if (pid < 0)
-    perror_with_name ("fork");
-
-  if (pid == 0)
-    {
-      close_most_fds ();
-      ptrace (PTRACE_TRACEME, 0, (PTRACE_TYPE_ARG3) 0, (PTRACE_TYPE_ARG4) 0);
-
-      setpgid (0, 0);
-
-      /* If gdbserver is connected to gdb via stdio, redirect the inferior's
-	 stdout to stderr so that inferior i/o doesn't corrupt the connection.
-	 Also, redirect stdin to /dev/null.  */
-      if (remote_connection_is_stdio ())
-	{
-	  close (0);
-	  open ("/dev/null", O_RDONLY);
-	  dup2 (2, 1);
-	  if (write (2, "stdin/stdout redirected\n",
-		     sizeof ("stdin/stdout redirected\n") - 1) < 0)
-	    {
-	      /* Errors ignored.  */;
-	    }
-	}
-
-      restore_original_signals_state ();
-
-      execv (program, allargs);
-      if (errno == ENOENT)
-	execvp (program, allargs);
-
-      fprintf (stderr, "Cannot exec %s: %s.\n", program,
-	       strerror (errno));
-      fflush (stderr);
-      _exit (0177);
-    }
+  pid = fork_inferior (program,
+		       str_program_args.c_str (),
+		       get_environ ()->envp (), linux_ptrace_fun,
+		       NULL, NULL, NULL, NULL);
 
   do_cleanups (restore_personality);
 
@@ -1002,6 +1008,8 @@ linux_create_inferior (char *program, char **allargs)
   ptid = ptid_build (pid, pid, 0);
   new_lwp = add_lwp (ptid);
   new_lwp->must_set_ptrace_flags = 1;
+
+  post_fork_inferior (pid, program);
 
   return pid;
 }
@@ -1976,10 +1984,9 @@ check_zombie_leaders (void)
 	     thread execs).  */
 
 	  if (debug_threads)
-	    fprintf (stderr,
-		     "CZL: Thread group leader %d zombie "
-		     "(it exited, or another thread execd).\n",
-		     leader_pid);
+	    debug_printf ("CZL: Thread group leader %d zombie "
+			  "(it exited, or another thread execd).\n",
+			  leader_pid);
 
 	  delete_lwp (leader_lp);
 	}
@@ -2695,7 +2702,8 @@ linux_wait_for_event_filtered (ptid_t wait_ptid, ptid_t filter_ptid,
   if (ptid_equal (filter_ptid, minus_one_ptid) || ptid_is_pid (filter_ptid))
     {
       event_thread = (struct thread_info *)
-	find_inferior (&all_threads, status_pending_p_callback, &filter_ptid);
+	find_inferior_in_random (&all_threads, status_pending_p_callback,
+				 &filter_ptid);
       if (event_thread != NULL)
 	event_child = get_thread_lwp (event_thread);
       if (debug_threads && event_thread)
@@ -2806,7 +2814,8 @@ linux_wait_for_event_filtered (ptid_t wait_ptid, ptid_t filter_ptid,
       /* ... and find an LWP with a status to report to the core, if
 	 any.  */
       event_thread = (struct thread_info *)
-	find_inferior (&all_threads, status_pending_p_callback, &filter_ptid);
+	find_inferior_in_random (&all_threads, status_pending_p_callback,
+				 &filter_ptid);
       if (event_thread != NULL)
 	{
 	  event_child = get_thread_lwp (event_thread);
@@ -3679,17 +3688,31 @@ linux_wait_1 (ptid_t ptid,
 	  (*the_low_target.set_pc) (regcache, event_child->stop_pc);
 	}
 
-      /* We may have finished stepping over a breakpoint.  If so,
-	 we've stopped and suspended all LWPs momentarily except the
-	 stepping one.  This is where we resume them all again.  We're
-	 going to keep waiting, so use proceed, which handles stepping
-	 over the next breakpoint.  */
+      if (step_over_finished)
+	{
+	  /* If we have finished stepping over a breakpoint, we've
+	     stopped and suspended all LWPs momentarily except the
+	     stepping one.  This is where we resume them all again.
+	     We're going to keep waiting, so use proceed, which
+	     handles stepping over the next breakpoint.  */
+	  unsuspend_all_lwps (event_child);
+	}
+      else
+	{
+	  /* Remove the single-step breakpoints if any.  Note that
+	     there isn't single-step breakpoint if we finished stepping
+	     over.  */
+	  if (can_software_single_step ()
+	      && has_single_step_breakpoints (current_thread))
+	    {
+	      stop_all_lwps (0, event_child);
+	      delete_single_step_breakpoints (current_thread);
+	      unstop_all_lwps (0, event_child);
+	    }
+	}
+
       if (debug_threads)
 	debug_printf ("proceeding all threads.\n");
-
-      if (step_over_finished)
-	unsuspend_all_lwps (event_child);
-
       proceed_all_lwps ();
 
       if (debug_threads)
@@ -3853,6 +3876,15 @@ linux_wait_1 (ptid_t ptid,
     {
       /* If the reported event is an exit, fork, vfork or exec, let
 	 GDB know.  */
+
+      /* Break the unreported fork relationship chain.  */
+      if (event_child->waitstatus.kind == TARGET_WAITKIND_FORKED
+	  || event_child->waitstatus.kind == TARGET_WAITKIND_VFORKED)
+	{
+	  event_child->fork_relative->fork_relative = NULL;
+	  event_child->fork_relative = NULL;
+	}
+
       *ourstatus = event_child->waitstatus;
       /* Clear the event lwp's waitstatus since we handled it already.  */
       event_child->waitstatus.kind = TARGET_WAITKIND_IGNORE;
@@ -4288,19 +4320,14 @@ enqueue_pending_signal (struct lwp_info *lwp, int signal, siginfo_t *info)
 static void
 install_software_single_step_breakpoints (struct lwp_info *lwp)
 {
-  int i;
-  CORE_ADDR pc;
   struct thread_info *thread = get_lwp_thread (lwp);
   struct regcache *regcache = get_thread_regcache (thread, 1);
-  VEC (CORE_ADDR) *next_pcs = NULL;
   struct cleanup *old_chain = make_cleanup_restore_current_thread ();
 
-  make_cleanup (VEC_cleanup (CORE_ADDR), &next_pcs);
-
   current_thread = thread;
-  next_pcs = (*the_low_target.get_next_pcs) (regcache);
+  std::vector<CORE_ADDR> next_pcs = the_low_target.get_next_pcs (regcache);
 
-  for (i = 0; VEC_iterate (CORE_ADDR, next_pcs, i, pc); ++i)
+  for (CORE_ADDR pc : next_pcs)
     set_single_step_breakpoint (pc, current_ptid);
 
   do_cleanups (old_chain);
@@ -4431,10 +4458,10 @@ linux_resume_one_lwp_throw (struct lwp_info *lwp,
 	  if (fast_tp_collecting == 0)
 	    {
 	      if (step == 0)
-		fprintf (stderr, "BAD - reinserting but not stepping.\n");
+		warning ("BAD - reinserting but not stepping.");
 	      if (lwp->suspended)
-		fprintf (stderr, "BAD - reinserting and suspended(%d).\n",
-			 lwp->suspended);
+		warning ("BAD - reinserting and suspended(%d).",
+				 lwp->suspended);
 	    }
 	}
 
@@ -4651,6 +4678,51 @@ linux_set_resume_request (struct inferior_list_entry *entry, void *arg)
 			      : "stopping",
 			      lwpid_of (thread));
 
+	      continue;
+	    }
+
+	  /* Ignore (wildcard) resume requests for already-resumed
+	     threads.  */
+	  if (r->resume[ndx].kind != resume_stop
+	      && thread->last_resume_kind != resume_stop)
+	    {
+	      if (debug_threads)
+		debug_printf ("already %s LWP %ld at GDB's request\n",
+			      (thread->last_resume_kind
+			       == resume_step)
+			      ? "stepping"
+			      : "continuing",
+			      lwpid_of (thread));
+	      continue;
+	    }
+
+	  /* Don't let wildcard resumes resume fork children that GDB
+	     does not yet know are new fork children.  */
+	  if (lwp->fork_relative != NULL)
+	    {
+	      struct inferior_list_entry *inf, *tmp;
+	      struct lwp_info *rel = lwp->fork_relative;
+
+	      if (rel->status_pending_p
+		  && (rel->waitstatus.kind == TARGET_WAITKIND_FORKED
+		      || rel->waitstatus.kind == TARGET_WAITKIND_VFORKED))
+		{
+		  if (debug_threads)
+		    debug_printf ("not resuming LWP %ld: has queued stop reply\n",
+				  lwpid_of (thread));
+		  continue;
+		}
+	    }
+
+	  /* If the thread has a pending event that has already been
+	     reported to GDBserver core, but GDB has not pulled the
+	     event out of the vStopped queue yet, likewise, ignore the
+	     (wildcard) resume request.  */
+	  if (in_queued_stop_replies (entry->id))
+	    {
+	      if (debug_threads)
+		debug_printf ("not resuming LWP %ld: has queued stop reply\n",
+			      lwpid_of (thread));
 	      continue;
 	    }
 
@@ -5798,11 +5870,11 @@ static int
 linux_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
 {
   int pid = lwpid_of (current_thread);
-  register PTRACE_XFER_TYPE *buffer;
-  register CORE_ADDR addr;
-  register int count;
+  PTRACE_XFER_TYPE *buffer;
+  CORE_ADDR addr;
+  int count;
   char filename[64];
-  register int i;
+  int i;
   int ret;
   int fd;
 
@@ -5886,16 +5958,16 @@ linux_read_memory (CORE_ADDR memaddr, unsigned char *myaddr, int len)
 static int
 linux_write_memory (CORE_ADDR memaddr, const unsigned char *myaddr, int len)
 {
-  register int i;
+  int i;
   /* Round starting address down to longword boundary.  */
-  register CORE_ADDR addr = memaddr & -(CORE_ADDR) sizeof (PTRACE_XFER_TYPE);
+  CORE_ADDR addr = memaddr & -(CORE_ADDR) sizeof (PTRACE_XFER_TYPE);
   /* Round ending address up; get number of longwords that makes.  */
-  register int count
+  int count
     = (((memaddr + len) - addr) + sizeof (PTRACE_XFER_TYPE) - 1)
     / sizeof (PTRACE_XFER_TYPE);
 
   /* Allocate buffer of that many longwords.  */
-  register PTRACE_XFER_TYPE *buffer = XALLOCAVEC (PTRACE_XFER_TYPE, count);
+  PTRACE_XFER_TYPE *buffer = XALLOCAVEC (PTRACE_XFER_TYPE, count);
 
   int pid = lwpid_of (current_thread);
 
@@ -5986,8 +6058,6 @@ linux_look_up_symbols (void)
 static void
 linux_request_interrupt (void)
 {
-  extern unsigned long signal_pid;
-
   /* Send a SIGINT to the process group.  This acts just like the user
      typed a ^C on the controlling terminal.  */
   kill (-signal_pid, SIGINT);
@@ -6444,6 +6514,8 @@ linux_supports_agent (void)
 static int
 linux_supports_range_stepping (void)
 {
+  if (can_software_single_step ())
+    return 1;
   if (*the_low_target.supports_range_stepping == NULL)
     return 0;
 

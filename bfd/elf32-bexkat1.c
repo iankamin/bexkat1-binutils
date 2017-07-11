@@ -575,7 +575,7 @@ bexkat1_elf_check_relocs (bfd *abfd,
 		 || h->root.type == bfd_link_hash_warning)
 	    h = (struct elf_link_hash_entry *) h->root.u.i.link;
 
-	  h->root.non_ir_ref = 1;
+	  h->root.non_ir_ref_regular = 1;
 	}
 
       switch (ELF32_R_TYPE (rel->r_info))

@@ -1,5 +1,5 @@
 /* tc-mt.c -- Assembler for the Morpho Technologies mt .
-   Copyright (C) 2005-2016 Free Software Foundation, Inc.
+   Copyright (C) 2005-2017 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -133,6 +133,7 @@ md_parse_option (int c ATTRIBUTE_UNUSED, const char * arg)
  	  mt_mach_bitmask = 1 << MACH_MS2;
  	  mt_arch = ms2;
  	}
+      break;
     case OPTION_NO_SCHED_REST:
       no_scheduling_restrictions = 1;
       break;

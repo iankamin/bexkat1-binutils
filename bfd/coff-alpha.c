@@ -1,5 +1,5 @@
 /* BFD back-end for ALPHA Extended-Coff files.
-   Copyright (C) 1993-2016 Free Software Foundation, Inc.
+   Copyright (C) 1993-2017 Free Software Foundation, Inc.
    Modified from coff-mips.c by Steve Chamberlain <sac@cygnus.com> and
    Ian Lance Taylor <ian@cygnus.com>.
 
@@ -597,6 +597,7 @@ alpha_adjust_reloc_in (bfd *abfd,
 {
   if (intern->r_type > ALPHA_R_GPVALUE)
     {
+      /* xgettext:c-format */
       _bfd_error_handler
 	(_("%B: unknown/unsupported relocation type %d"),
 	 abfd, intern->r_type);
@@ -1513,6 +1514,7 @@ alpha_relocate_section (bfd *output_bfd,
 
 	default:
 	  _bfd_error_handler
+	    /* xgettext:c-format */
 	    (_("%B: unknown relocation type %d"),
 	     input_bfd, (int) r_type);
 	  bfd_set_error (bfd_error_bad_value);
@@ -2338,7 +2340,11 @@ static const struct ecoff_backend_data alpha_ecoff_backend_data =
 #define _bfd_ecoff_section_already_linked \
   _bfd_coff_section_already_linked
 #define _bfd_ecoff_bfd_define_common_symbol bfd_generic_define_common_symbol
+#define _bfd_ecoff_bfd_define_start_stop    bfd_generic_define_start_stop
 #define _bfd_ecoff_bfd_link_check_relocs    _bfd_generic_link_check_relocs
+
+/* Installing internal relocations in a section is also generic.  */
+#define _bfd_ecoff_set_reloc _bfd_generic_set_reloc
 
 const bfd_target alpha_ecoff_le_vec =
 {

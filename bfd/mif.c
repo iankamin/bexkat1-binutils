@@ -272,6 +272,7 @@ mif_get_section_contents (bfd *abfd ATTRIBUTE_UNUSED,
 #define mif_bfd_discard_group                    bfd_generic_discard_group
 #define mif_section_already_linked               _bfd_generic_section_already_linked
 #define mif_bfd_define_common_symbol             bfd_generic_define_common_symbol
+#define mif_bfd_define_start_stop                bfd_generic_define_start_stop
 #define mif_bfd_link_hash_table_create           _bfd_generic_link_hash_table_create
 #define mif_bfd_link_add_symbols                 _bfd_generic_link_add_symbols
 #define mif_bfd_link_just_syms                   _bfd_generic_link_just_syms

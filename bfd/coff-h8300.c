@@ -1,5 +1,5 @@
 /* BFD back-end for Renesas H8/300 COFF binaries.
-   Copyright (C) 1990-2016 Free Software Foundation, Inc.
+   Copyright (C) 1990-2017 Free Software Foundation, Inc.
    Written by Steve Chamberlain, <sac@cygnus.com>.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -579,9 +579,7 @@ h8300_reloc16_estimate (bfd *abfd, asection *input_section, arelent *reloc,
 	  /* Done with this reloc.  */
 	  break;
 	}
-
-      /* FALLTHROUGH and try to turn the 24-/32-bit reloc into a 16-bit
-	 reloc.  */
+      /* Fall through.  */
 
     /* This is a 24-/32-bit absolute address in a mov insn, which can
        become an 16-bit absolute address if it's in the right range.  */

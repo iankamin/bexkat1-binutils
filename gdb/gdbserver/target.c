@@ -1,5 +1,5 @@
 /* Target operations for the remote server for GDB.
-   Copyright (C) 2002-2016 Free Software Foundation, Inc.
+   Copyright (C) 2002-2017 Free Software Foundation, Inc.
 
    Contributed by MontaVista Software.
 
@@ -248,8 +248,12 @@ target_stop_and_wait (ptid_t ptid)
 {
   struct target_waitstatus status;
   int was_non_stop = non_stop;
+  struct thread_resume resume_info;
 
-  target_continue_no_signal (ptid);
+  resume_info.thread = ptid;
+  resume_info.kind = resume_stop;
+  resume_info.sig = GDB_SIGNAL_0;
+  (*the_target->resume) (&resume_info, 1);
 
   non_stop = 1;
   mywait (ptid, &status, 0, 0);
@@ -296,6 +300,15 @@ target_continue (ptid_t ptid, enum gdb_signal signal)
   resume_info.kind = resume_continue;
   resume_info.sig = gdb_signal_to_host (signal);
   (*the_target->resume) (&resume_info, 1);
+}
+
+/* See target/target.h.  */
+
+int
+target_supports_multi_process (void)
+{
+  return (the_target->supports_multi_process != NULL ?
+	  (*the_target->supports_multi_process) () : 0);
 }
 
 int
@@ -373,4 +386,31 @@ default_breakpoint_kind_from_pc (CORE_ADDR *pcptr)
 
   (*the_target->sw_breakpoint_from_kind) (0, &size);
   return size;
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal_init ()
+{
+  /* Placeholder needed because of fork_inferior.  Not necessary on
+     GDBserver.  */
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal_inferior ()
+{
+  /* Placeholder needed because of fork_inferior.  Not necessary on
+     GDBserver.  */
+}
+
+/* See target/target.h.  */
+
+void
+target_terminal_ours ()
+{
+  /* Placeholder needed because of fork_inferior.  Not necessary on
+     GDBserver.  */
 }

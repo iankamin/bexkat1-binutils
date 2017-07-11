@@ -1,5 +1,5 @@
 /* Main program of GNU linker.
-   Copyright (C) 1991-2016 Free Software Foundation, Inc.
+   Copyright (C) 1991-2017 Free Software Foundation, Inc.
    Written by Steve Chamberlain steve@cygnus.com
 
    This file is part of the GNU Binutils.
@@ -298,6 +298,9 @@ main (int argc, char **argv)
 #ifdef DEFAULT_FLAG_COMPRESS_DEBUG
   link_info.compress_debug = COMPRESS_DEBUG_GABI_ZLIB;
 #endif
+#ifdef DEFAULT_NEW_DTAGS
+  link_info.new_dtags = DEFAULT_NEW_DTAGS;
+#endif
 
   ldfile_add_arch ("");
   emulation = get_emulation (argc, argv);
@@ -368,7 +371,7 @@ main (int argc, char **argv)
 	  while ((n = fread (buf, 1, ld_bufsz - 1, saved_script_handle)) > 0)
 	    {
 	      buf[n] = 0;
-	      info_msg (buf);
+	      info_msg ("%s", buf);
 	    }
 	  rewind (saved_script_handle);
 	  free (buf);
@@ -382,6 +385,12 @@ main (int argc, char **argv)
 
       info_msg ("\n==================================================\n");
     }
+
+  if (command_line.force_group_allocation
+      || !bfd_link_relocatable (&link_info))
+    link_info.resolve_section_groups = TRUE;
+  else
+    link_info.resolve_section_groups = FALSE;
 
   if (command_line.print_output_format)
     info_msg ("%s\n", lang_get_output_target ());
@@ -800,6 +809,7 @@ add_archive_element (struct bfd_link_info *info,
 
   input = (lang_input_statement_type *)
       xcalloc (1, sizeof (lang_input_statement_type));
+  input->header.type = lang_input_statement_enum;
   input->filename = abfd->filename;
   input->local_sym_name = abfd->filename;
   input->the_bfd = abfd;
@@ -870,11 +880,7 @@ add_archive_element (struct bfd_link_info *info,
 
       if (!header_printed)
 	{
-	  char buf[100];
-
-	  sprintf (buf, _("Archive member included "
-			  "to satisfy reference by file (symbol)\n\n"));
-	  minfo ("%s", buf);
+	  minfo (_("Archive member included to satisfy reference by file (symbol)\n\n"));
 	  header_printed = TRUE;
 	}
 

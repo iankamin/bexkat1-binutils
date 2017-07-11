@@ -1,5 +1,5 @@
 /* BFD back-end for Intel Hex objects.
-   Copyright (C) 1995-2016 Free Software Foundation, Inc.
+   Copyright (C) 1995-2017 Free Software Foundation, Inc.
    Written by Ian Lance Taylor of Cygnus Support <ian@cygnus.com>.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -226,6 +226,7 @@ ihex_bad_byte (bfd *abfd, unsigned int lineno, int c, bfd_boolean error)
 	  buf[1] = '\0';
 	}
       _bfd_error_handler
+	/* xgettext:c-format */
 	(_("%B:%d: unexpected character `%s' in Intel Hex file"),
 	 abfd, lineno, buf);
       bfd_set_error (bfd_error_bad_value);
@@ -333,6 +334,7 @@ ihex_scan (bfd *abfd)
 	  if (((- chksum) & 0xff) != (unsigned int) HEX2 (buf + 2 * i))
 	    {
 	      _bfd_error_handler
+		/* xgettext:c-format */
 		(_("%B:%u: bad checksum in Intel Hex file (expected %u, found %u)"),
 		 abfd, lineno,
 		 (- chksum) & 0xff, (unsigned int) HEX2 (buf + 2 * i));
@@ -388,6 +390,7 @@ ihex_scan (bfd *abfd)
 	      if (len != 2)
 		{
 		  _bfd_error_handler
+		    /* xgettext:c-format */
 		    (_("%B:%u: bad extended address record length in Intel Hex file"),
 		     abfd, lineno);
 		  bfd_set_error (bfd_error_bad_value);
@@ -405,6 +408,7 @@ ihex_scan (bfd *abfd)
 	      if (len != 4)
 		{
 		  _bfd_error_handler
+		    /* xgettext:c-format */
 		    (_("%B:%u: bad extended start address length in Intel Hex file"),
 		     abfd, lineno);
 		  bfd_set_error (bfd_error_bad_value);
@@ -422,6 +426,7 @@ ihex_scan (bfd *abfd)
 	      if (len != 2)
 		{
 		  _bfd_error_handler
+		    /* xgettext:c-format */
 		    (_("%B:%u: bad extended linear address record length in Intel Hex file"),
 		     abfd, lineno);
 		  bfd_set_error (bfd_error_bad_value);
@@ -439,6 +444,7 @@ ihex_scan (bfd *abfd)
 	      if (len != 2 && len != 4)
 		{
 		  _bfd_error_handler
+		    /* xgettext:c-format */
 		    (_("%B:%u: bad extended linear start address length in Intel Hex file"),
 		     abfd, lineno);
 		  bfd_set_error (bfd_error_bad_value);
@@ -456,6 +462,7 @@ ihex_scan (bfd *abfd)
 
 	    default:
 	      _bfd_error_handler
+		/* xgettext:c-format */
 		(_("%B:%u: unrecognized ihex type %u in Intel Hex file"),
 		 abfd, lineno, type);
 	      bfd_set_error (bfd_error_bad_value);
@@ -822,8 +829,9 @@ ihex_write_object_contents (bfd *abfd)
 
 		      sprintf_vma (buf, where);
 		      _bfd_error_handler
-			(_("%s: address 0x%s out of range for Intel Hex file"),
-			 bfd_get_filename (abfd), buf);
+			/* xgettext:c-format */
+			(_("%B: address 0x%s out of range for Intel Hex file"),
+			 abfd, buf);
 		      bfd_set_error (bfd_error_bad_value);
 		      return FALSE;
 		    }
@@ -937,6 +945,7 @@ ihex_sizeof_headers (bfd *abfd ATTRIBUTE_UNUSED,
 #define ihex_bfd_discard_group                    bfd_generic_discard_group
 #define ihex_section_already_linked               _bfd_generic_section_already_linked
 #define ihex_bfd_define_common_symbol             bfd_generic_define_common_symbol
+#define ihex_bfd_define_start_stop                bfd_generic_define_start_stop
 #define ihex_bfd_link_hash_table_create           _bfd_generic_link_hash_table_create
 #define ihex_bfd_link_add_symbols                 _bfd_generic_link_add_symbols
 #define ihex_bfd_link_just_syms                   _bfd_generic_link_just_syms

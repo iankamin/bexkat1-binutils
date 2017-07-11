@@ -1,5 +1,5 @@
 /* Support for the generic parts of PE/PEI, for BFD.
-   Copyright (C) 1995-2016 Free Software Foundation, Inc.
+   Copyright (C) 1995-2017 Free Software Foundation, Inc.
    Written by Cygnus Solutions.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -771,11 +771,13 @@ pe_ILF_build_a_bfd (bfd *           abfd,
 
     case IMPORT_CONST:
       /* XXX code yet to be written.  */
+      /* xgettext:c-format */
       _bfd_error_handler (_("%B: Unhandled import type; %x"),
 			  abfd, import_type);
       return FALSE;
 
     default:
+      /* xgettext:c-format */
       _bfd_error_handler (_("%B: Unrecognised import type; %x"),
 			  abfd, import_type);
       return FALSE;
@@ -790,6 +792,7 @@ pe_ILF_build_a_bfd (bfd *           abfd,
       break;
 
     default:
+      /* xgettext:c-format */
       _bfd_error_handler (_("%B: Unrecognised import name type; %x"),
 			  abfd, import_name_type);
       return FALSE;
@@ -889,8 +892,8 @@ pe_ILF_build_a_bfd (bfd *           abfd,
   if (import_name_type == IMPORT_ORDINAL)
     {
       if (ordinal == 0)
-	/* XXX - treat as IMPORT_NAME ??? */
-	abort ();
+	/* See PR 20907 for a reproducer.  */
+	goto error_return;
 
 #ifdef COFF_WITH_pex64
       ((unsigned int *) id4->contents)[0] = ordinal;
@@ -1210,6 +1213,7 @@ pe_ILF_object_p (bfd * abfd)
       /* We no longer support PowerPC.  */
     default:
       _bfd_error_handler
+	/* xgettext:c-format */
 	(_("%B: Unrecognised machine type (0x%x)"
 	   " in Import Library Format archive"),
 	 abfd, machine);
@@ -1222,6 +1226,7 @@ pe_ILF_object_p (bfd * abfd)
   if (magic == 0)
     {
       _bfd_error_handler
+	/* xgettext:c-format */
 	(_("%B: Recognised but unhandled machine type (0x%x)"
 	   " in Import Library Format archive"),
 	 abfd, machine);
@@ -1264,7 +1269,8 @@ pe_ILF_object_p (bfd * abfd)
     }
 
   symbol_name = (char *) ptr;
-  source_dll  = symbol_name + strlen (symbol_name) + 1;
+  /* See PR 20905 for an example of where the strnlen is necessary.  */
+  source_dll  = symbol_name + strnlen (symbol_name, size - 1) + 1;
 
   /* Verify that the strings are null terminated.  */
   if (ptr[size - 1] != 0

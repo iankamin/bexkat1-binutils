@@ -1,5 +1,5 @@
 /* nm.c -- Describe symbol table of a rel file.
-   Copyright (C) 1991-2016 Free Software Foundation, Inc.
+   Copyright (C) 1991-2017 Free Software Foundation, Inc.
 
    This file is part of GNU Binutils.
 
@@ -161,6 +161,7 @@ static int show_stats = 0;	/* Show statistics.  */
 static int show_synthetic = 0;	/* Display synthesized symbols too.  */
 static int line_numbers = 0;	/* Print line numbers for symbols.  */
 static int allow_special_symbols = 0;  /* Allow special symbols.  */
+static int with_symbol_versions = 0; /* Include symbol version information in the output.  */
 
 /* When to print the names of files.  Not mutually exclusive in SYSV format.  */
 static int filename_per_file = 0;	/* Once per file, on its own line.  */
@@ -226,12 +227,13 @@ static struct option long_options[] =
   {"defined-only", no_argument, &defined_only, 1},
   {"undefined-only", no_argument, &undefined_only, 1},
   {"version", no_argument, &show_version, 1},
+  {"with-symbol-versions", no_argument, &with_symbol_versions, 1},
   {0, no_argument, 0, 0}
 };
 
 /* Some error-reporting functions.  */
 
-static void
+ATTRIBUTE_NORETURN static void
 usage (FILE *stream, int status)
 {
   fprintf (stream, _("Usage: %s [option(s)] [file(s)]\n"), program_name);
@@ -271,6 +273,7 @@ usage (FILE *stream, int status)
   -t, --radix=RADIX      Use RADIX for printing symbol values\n\
       --target=BFDNAME   Specify the target object format as BFDNAME\n\
   -u, --undefined-only   Display only undefined symbols\n\
+      --with-symbol-versions  Display version strings after symbol names\n\
   -X 32_64               (ignored)\n\
   @FILE                  Read options from FILE\n\
   -h, --help             Display this information\n\
@@ -682,7 +685,8 @@ size_forward1 (const void *P_x, const void *P_y)
 
 #define file_symbol(s, sn, snl)			\
   (((s)->flags & BSF_FILE) != 0			\
-   || ((sn)[(snl) - 2] == '.'			\
+   || ((snl) > 2				\
+       && (sn)[(snl) - 2] == '.'		\
        && ((sn)[(snl) - 1] == 'o'		\
 	   || (sn)[(snl) - 1] == 'a')))
 
@@ -759,6 +763,7 @@ sort_symbols_by_size (bfd *abfd, bfd_boolean is_dynamic, void *minisyms,
       asection *sec;
       bfd_vma sz;
       asymbol *temp;
+      int synthetic = (sym->flags & BSF_SYNTHETIC);
 
       if (from + size < fromend)
 	{
@@ -774,9 +779,11 @@ sort_symbols_by_size (bfd *abfd, bfd_boolean is_dynamic, void *minisyms,
 
       sec = bfd_get_section (sym);
 
-      if (bfd_get_flavour (abfd) == bfd_target_elf_flavour)
+      /* Synthetic symbols don't have a full type set of data available, thus
+	 we can't rely on that information for the symbol size.  */
+      if (!synthetic && bfd_get_flavour (abfd) == bfd_target_elf_flavour)
 	sz = ((elf_symbol_type *) sym)->internal_elf_sym.st_size;
-      else if (bfd_is_com_section (sec))
+      else if (!synthetic && bfd_is_com_section (sec))
 	sz = sym->value;
       else
 	{
@@ -878,6 +885,21 @@ print_symbol (bfd *        abfd,
     }
 
   format->print_symbol_info (&info, abfd);
+
+  if (with_symbol_versions)
+    {
+      const char *  version_string = NULL;
+      bfd_boolean   hidden = FALSE;
+
+      if ((sym->flags & BSF_SYNTHETIC) == 0)
+	version_string = bfd_get_symbol_version_string (abfd, sym, &hidden);
+
+      if (bfd_is_und_section (bfd_get_section (sym)))
+	hidden = TRUE;
+
+      if (version_string && *version_string != '\0')
+	printf (hidden ? "@%s" : "@@%s", version_string);
+    }
 
   if (line_numbers)
     {
