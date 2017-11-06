@@ -262,7 +262,7 @@ reggroups_dump (struct gdbarch *gdbarch, struct ui_file *file)
 }
 
 static void
-maintenance_print_reggroups (char *args, int from_tty)
+maintenance_print_reggroups (const char *args, int from_tty)
 {
   struct gdbarch *gdbarch = get_current_arch ();
 
@@ -294,8 +294,6 @@ struct reggroup *const vector_reggroup = &vector_group;
 struct reggroup *const all_reggroup = &all_group;
 struct reggroup *const save_reggroup = &save_group;
 struct reggroup *const restore_reggroup = &restore_group;
-
-extern initialize_file_ftype _initialize_reggroup; /* -Wmissing-prototypes */
 
 void
 _initialize_reggroup (void)

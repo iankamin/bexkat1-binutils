@@ -46,6 +46,14 @@ struct using_direct;
 
 #define CP_ANONYMOUS_NAMESPACE_LEN 21
 
+/* A string representing the start of an operator name.  */
+
+#define CP_OPERATOR_STR "operator"
+
+/* The length of CP_OPERATOR_STR.  */
+
+#define CP_OPERATOR_LEN 8
+
 /* The result of parsing a name.  */
 
 struct demangle_parse_info
@@ -87,7 +95,8 @@ extern unsigned int cp_entire_prefix_len (const char *name);
 
 extern char *cp_func_name (const char *full_name);
 
-extern char *cp_remove_params (const char *demangled_name);
+extern gdb::unique_xmalloc_ptr<char> cp_remove_params
+  (const char *demanged_name);
 
 extern struct symbol **make_symbol_overload_list (const char *,
 						  const char *);
@@ -142,8 +151,8 @@ struct type *cp_find_type_baseclass_by_name (struct type *parent_type,
 extern std::unique_ptr<demangle_parse_info> cp_demangled_name_to_comp
      (const char *demangled_name, const char **errmsg);
 
-extern char *cp_comp_to_string (struct demangle_component *result,
-				int estimated_len);
+extern gdb::unique_xmalloc_ptr<char> cp_comp_to_string
+  (struct demangle_component *result, int estimated_len);
 
 extern void cp_merge_demangle_parse_infos (struct demangle_parse_info *,
 					   struct demangle_component *,

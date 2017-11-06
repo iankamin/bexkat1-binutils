@@ -21,14 +21,6 @@
 #define PROBE_H 1
 
 struct event_location;
-
-#include "gdb_vecs.h"
-
-/* Definition of a vector of probes.  */
-
-typedef struct probe *probe_p;
-DEF_VEC_P (probe_p);
-
 struct linespec_result;
 
 /* Structure useful for passing the header names in the method
@@ -64,7 +56,7 @@ struct probe_ops
 
     /* Function that should fill PROBES with known probes from OBJFILE.  */
 
-    void (*get_probes) (VEC (probe_p) **probes, struct objfile *objfile);
+    void (*get_probes) (std::vector<probe *> *probes, struct objfile *objfile);
 
     /* Compute the probe's relocated address.  OBJFILE is the objfile
        in which the probe originated.  */
@@ -160,9 +152,7 @@ struct probe_ops
 
 /* Definition of a vector of probe_ops.  */
 
-typedef const struct probe_ops *probe_ops_cp;
-DEF_VEC_P (probe_ops_cp);
-extern VEC (probe_ops_cp) *all_probe_ops;
+extern std::vector<const probe_ops *> all_probe_ops;
 
 /* The probe_ops associated with the generic probe.  */
 
@@ -214,22 +204,35 @@ struct probe
    their point of use.  */
 
 struct bound_probe
-  {
-    /* The probe.  */
+{
+  /* Create an empty bound_probe object.  */
 
-    struct probe *probe;
+  bound_probe ()
+  {}
 
-    /* The objfile in which the probe originated.  */
+  /* Create and initialize a bound_probe object using PROBE and OBJFILE.  */
 
-    struct objfile *objfile;
-  };
+  bound_probe (struct probe *probe_, struct objfile *objfile_)
+  : probe (probe_), objfile (objfile_)
+  {}
 
-/* A helper for linespec that decodes a probe specification.  It returns a
-   symtabs_and_lines object and updates LOC or throws an error.  */
+  /* The probe.  */
 
-extern struct symtabs_and_lines parse_probes (const struct event_location *loc,
-					      struct program_space *pspace,
-					      struct linespec_result *canon);
+  struct probe *probe = NULL;
+
+  /* The objfile in which the probe originated.  */
+
+  struct objfile *objfile = NULL;
+};
+
+/* A helper for linespec that decodes a probe specification.  It
+   returns a std::vector<symtab_and_line> object and updates LOC or
+   throws an error.  */
+
+extern std::vector<symtab_and_line> parse_probes
+  (const struct event_location *loc,
+   struct program_space *pspace,
+   struct linespec_result *canon);
 
 /* Helper function to register the proper probe_ops to a newly created probe.
    This function is mainly called from `sym_get_probes'.  */
@@ -244,11 +247,11 @@ extern struct bound_probe find_probe_by_pc (CORE_ADDR pc);
 
 /* Search OBJFILE for a probe with the given PROVIDER, NAME.  Return a
    VEC of all probes that were found.  If no matching probe is found,
-   return NULL.  The caller must free the VEC.  */
+   return an empty vector.  */
 
-extern VEC (probe_p) *find_probes_in_objfile (struct objfile *objfile,
-					      const char *provider,
-					      const char *name);
+extern std::vector<probe *> find_probes_in_objfile (struct objfile *objfile,
+						    const char *provider,
+						    const char *name);
 
 /* Generate a `info probes' command output for probe_ops represented by
    POPS.  If POPS is NULL it considers any probes types.  It is a helper

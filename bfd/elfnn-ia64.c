@@ -617,9 +617,9 @@ elfNN_ia64_relax_section (bfd *abfd, asection *sec,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: Can't relax br at 0x%lx in section `%A'."
+		(_("%B: Can't relax br at %#Lx in section `%A'."
 		   " Please use brl or indirect branch."),
-		 sec->owner, (unsigned long) roff, sec);
+		 sec->owner, roff, sec);
 	      bfd_set_error (bfd_error_bad_value);
 	      goto error_return;
 	    }
@@ -2190,6 +2190,9 @@ elfNN_ia64_check_relocs (bfd *abfd, struct bfd_link_info *info,
       else
 	h = NULL;
 
+      if (h && UNDEFWEAK_NO_DYNAMIC_RELOC (info, h))
+	continue;
+
       /* We can only get preliminary data on whether a symbol is
 	 locally or externally defined, as not all of the input files
 	 have yet been processed.  Do something with what we know, as
@@ -2364,6 +2367,9 @@ elfNN_ia64_check_relocs (bfd *abfd, struct bfd_link_info *info,
 	}
       else
 	h = NULL;
+
+      if (h && UNDEFWEAK_NO_DYNAMIC_RELOC (info, h))
+	continue;
 
       /* We can only get preliminary data on whether a symbol is
 	 locally or externally defined, as not all of the input files
@@ -2717,7 +2723,8 @@ allocate_fptr (struct elfNN_ia64_dyn_sym_info *dyn_i, void * data)
 
       if (!bfd_link_executable (x->info)
 	  && (!h
-	      || ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+	      || (ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+		  && !UNDEFWEAK_NO_DYNAMIC_RELOC (x->info, h))
 	      || (h->root.type != bfd_link_hash_undefweak
 		  && h->root.type != bfd_link_hash_undefined)))
 	{
@@ -2846,8 +2853,8 @@ allocate_dynrel_entries (struct elfNN_ia64_dyn_sym_info *dyn_i,
 
   shared = bfd_link_pic (x->info);
   resolved_zero = (dyn_i->h
-		   && ELF_ST_VISIBILITY (dyn_i->h->other)
-		   && dyn_i->h->root.type == bfd_link_hash_undefweak);
+		   && UNDEFWEAK_NO_DYNAMIC_RELOC (x->info,
+						       dyn_i->h));
 
   /* Take care of the GOT and PLT relocations.  */
 
@@ -3319,7 +3326,8 @@ set_got_entry (bfd *abfd, struct bfd_link_info *info,
       /* Install a dynamic relocation if needed.  */
       if (((bfd_link_pic (info)
 	    && (!dyn_i->h
-		|| ELF_ST_VISIBILITY (dyn_i->h->other) == STV_DEFAULT
+		|| (ELF_ST_VISIBILITY (dyn_i->h->other) == STV_DEFAULT
+		    && !UNDEFWEAK_NO_DYNAMIC_RELOC (info, dyn_i->h))
 		|| dyn_i->h->root.type != bfd_link_hash_undefweak)
 	    && dyn_r_type != R_IA64_DTPREL32LSB
 	    && dyn_r_type != R_IA64_DTPREL64LSB)
@@ -3483,7 +3491,8 @@ set_pltoff_entry (bfd *abfd, struct bfd_link_info *info,
       if (!is_plt
 	  && bfd_link_pic (info)
 	  && (!dyn_i->h
-	      || ELF_ST_VISIBILITY (dyn_i->h->other) == STV_DEFAULT
+	      || (ELF_ST_VISIBILITY (dyn_i->h->other) == STV_DEFAULT
+		  && !UNDEFWEAK_NO_DYNAMIC_RELOC (info, dyn_i->h))
 	      || dyn_i->h->root.type != bfd_link_hash_undefweak))
 	{
 	  unsigned int dyn_r_type;
@@ -3685,8 +3694,8 @@ elfNN_ia64_choose_gp (bfd *abfd, struct bfd_link_info *info, bfd_boolean final)
 overflow:
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B: short data segment overflowed (0x%lx >= 0x400000)"),
-	     abfd, (unsigned long) (max_short_vma - min_short_vma));
+	    (_("%B: short data segment overflowed (%#Lx >= 0x400000)"),
+	     abfd, max_short_vma - min_short_vma);
 	  return FALSE;
 	}
       else if ((gp_val > min_short_vma
@@ -3944,6 +3953,7 @@ elfNN_ia64_relocate_section (bfd *output_bfd,
 	case R_IA64_DIR64LSB:
 	  /* Install a dynamic relocation for this reloc.  */
 	  if ((dynamic_symbol_p || bfd_link_pic (info))
+	      && !(h && UNDEFWEAK_NO_DYNAMIC_RELOC (info, h))
 	      && r_symndx != STN_UNDEF
 	      && (input_section->flags & SEC_ALLOC) != 0)
 	    {
@@ -4473,7 +4483,7 @@ missing_tls_sec:
 		_bfd_error_handler
 		  /* xgettext:c-format */
 		  (_("%B: missing TLS section for relocation %s against `%s'"
-		     " at 0x%lx in section `%A'."),
+		     " at %#Lx in section `%A'."),
 		   input_bfd, howto->name, name,
 		   rel->r_offset, input_section);
 		break;
@@ -4489,8 +4499,8 @@ missing_tls_sec:
 		       that the section is too big to relax.  */
 		    _bfd_error_handler
 		      /* xgettext:c-format */
-		      (_("%B: Can't relax br (%s) to `%s' at 0x%lx"
-			 " in section `%A' with size 0x%lx (> 0x1000000)."),
+		      (_("%B: Can't relax br (%s) to `%s' at %#Lx"
+			 " in section `%A' with size %#Lx (> 0x1000000)."),
 		       input_bfd, howto->name, name, rel->r_offset,
 		       input_section, input_section->size);
 		    break;

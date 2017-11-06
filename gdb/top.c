@@ -41,7 +41,6 @@
 #include "top.h"
 #include "version.h"
 #include "serial.h"
-#include "doublest.h"
 #include "main.h"
 #include "event-loop.h"
 #include "gdbthread.h"
@@ -129,16 +128,9 @@ show_confirm (struct ui_file *file, int from_tty,
 		    value);
 }
 
-/* Flag to indicate whether a user defined command is currently running.  */
-
-int in_user_command;
-
 /* Current working directory.  */
 
 char *current_directory;
-
-/* The directory name is actually stored here (usually).  */
-char gdb_dirbuf[1024];
 
 /* The last command line executed on the console.  Used for command
    repetitions.  */
@@ -256,130 +248,96 @@ static int highest_ui_num;
 
 /* See top.h.  */
 
-struct ui *
-new_ui (FILE *instream, FILE *outstream, FILE *errstream)
+ui::ui (FILE *instream_, FILE *outstream_, FILE *errstream_)
+  : next (nullptr),
+    num (++highest_ui_num),
+    call_readline (nullptr),
+    input_handler (nullptr),
+    command_editing (0),
+    interp_info (nullptr),
+    async (0),
+    secondary_prompt_depth (0),
+    stdin_stream (instream_),
+    instream (instream_),
+    outstream (outstream_),
+    errstream (errstream_),
+    input_fd (fileno (instream)),
+    input_interactive_p (ISATTY (instream)),
+    prompt_state (PROMPT_NEEDED),
+    m_gdb_stdout (new stdio_file (outstream)),
+    m_gdb_stdin (new stdio_file (instream)),
+    m_gdb_stderr (new stderr_file (errstream)),
+    m_gdb_stdlog (m_gdb_stderr),
+    m_current_uiout (nullptr)
 {
-  struct ui *ui;
-
-  ui = XCNEW (struct ui);
-
-  ui->num = ++highest_ui_num;
-  ui->stdin_stream = instream;
-  ui->instream = instream;
-  ui->outstream = outstream;
-  ui->errstream = errstream;
-
-  ui->input_fd = fileno (ui->instream);
-
-  ui->input_interactive_p = ISATTY (ui->instream);
-
-  ui->m_gdb_stdin = new stdio_file (ui->instream);
-  ui->m_gdb_stdout = new stdio_file (ui->outstream);
-  ui->m_gdb_stderr = new stderr_file (ui->errstream);
-  ui->m_gdb_stdlog = ui->m_gdb_stderr;
-
-  ui->prompt_state = PROMPT_NEEDED;
+  buffer_init (&line_buffer);
 
   if (ui_list == NULL)
-    ui_list = ui;
+    ui_list = this;
   else
     {
       struct ui *last;
 
       for (last = ui_list; last->next != NULL; last = last->next)
 	;
-      last->next = ui;
+      last->next = this;
     }
-
-  return ui;
 }
 
-static void
-free_ui (struct ui *ui)
-{
-  delete ui->m_gdb_stdin;
-  delete ui->m_gdb_stdout;
-  delete ui->m_gdb_stderr;
-
-  xfree (ui);
-}
-
-void
-delete_ui (struct ui *todel)
+ui::~ui ()
 {
   struct ui *ui, *uiprev;
 
   uiprev = NULL;
 
   for (ui = ui_list; ui != NULL; uiprev = ui, ui = ui->next)
-    if (ui == todel)
+    if (ui == this)
       break;
 
   gdb_assert (ui != NULL);
 
   if (uiprev != NULL)
-    uiprev->next = ui->next;
+    uiprev->next = next;
   else
-    ui_list = ui->next;
+    ui_list = next;
 
-  free_ui (ui);
-}
-
-/* Cleanup that deletes a UI.  */
-
-static void
-delete_ui_cleanup (void *void_ui)
-{
-  struct ui *ui = (struct ui *) void_ui;
-
-  delete_ui (ui);
-}
-
-/* See top.h.  */
-
-struct cleanup *
-make_delete_ui_cleanup (struct ui *ui)
-{
-  return make_cleanup (delete_ui_cleanup, ui);
+  delete m_gdb_stdin;
+  delete m_gdb_stdout;
+  delete m_gdb_stderr;
 }
 
 /* Open file named NAME for read/write, making sure not to make it the
    controlling terminal.  */
 
-static FILE *
+static gdb_file_up
 open_terminal_stream (const char *name)
 {
   int fd;
 
-  fd = open (name, O_RDWR | O_NOCTTY);
+  fd = gdb_open_cloexec (name, O_RDWR | O_NOCTTY, 0);
   if (fd < 0)
     perror_with_name  (_("opening terminal failed"));
 
-  return fdopen (fd, "w+");
+  return gdb_file_up (fdopen (fd, "w+"));
 }
 
 /* Implementation of the "new-ui" command.  */
 
 static void
-new_ui_command (char *args, int from_tty)
+new_ui_command (const char *args, int from_tty)
 {
-  struct ui *ui;
   struct interp *interp;
-  FILE *stream[3] = { NULL, NULL, NULL };
+  gdb_file_up stream[3];
   int i;
   int res;
   int argc;
-  char **argv;
   const char *interpreter_name;
   const char *tty_name;
-  struct cleanup *success_chain;
-  struct cleanup *failure_chain;
 
   dont_repeat ();
 
-  argv = gdb_buildargv (args);
-  success_chain = make_cleanup_freeargv (argv);
-  argc = countargv (argv);
+  gdb_argv argv (args);
+  argc = argv.count ();
 
   if (argc < 2)
     error (_("usage: new-ui <interpreter> <tty>"));
@@ -390,31 +348,28 @@ new_ui_command (char *args, int from_tty)
   {
     scoped_restore save_ui = make_scoped_restore (&current_ui);
 
-    failure_chain = make_cleanup (null_cleanup, NULL);
-
     /* Open specified terminal, once for each of
        stdin/stdout/stderr.  */
     for (i = 0; i < 3; i++)
-      {
-	stream[i] = open_terminal_stream (tty_name);
-	make_cleanup_fclose (stream[i]);
-      }
+      stream[i] = open_terminal_stream (tty_name);
 
-    ui = new_ui (stream[0], stream[1], stream[2]);
-    make_cleanup (delete_ui_cleanup, ui);
+    std::unique_ptr<ui> ui
+      (new struct ui (stream[0].get (), stream[1].get (), stream[2].get ()));
 
     ui->async = 1;
 
-    current_ui = ui;
+    current_ui = ui.get ();
 
     set_top_level_interpreter (interpreter_name);
 
     interp_pre_command_loop (top_level_interpreter ());
 
-    discard_cleanups (failure_chain);
+    /* Make sure the files are not closed.  */
+    stream[0].release ();
+    stream[1].release ();
+    stream[2].release ();
 
-    /* This restores the previous UI and frees argv.  */
-    do_cleanups (success_chain);
+    ui.release ();
   }
 
   printf_unfiltered ("New UI allocated\n");
@@ -448,27 +403,14 @@ quit_cover (void)
    event-top.c into this file, top.c.  */
 /* static */ const char *source_file_name;
 
-/* Clean up on error during a "source" command (or execution of a
-   user-defined command).  */
-
-void
-do_restore_instream_cleanup (void *stream)
-{
-  struct ui *ui = current_ui;
-
-  /* Restore the previous input stream.  */
-  ui->instream = (FILE *) stream;
-}
-
 /* Read commands from STREAM.  */
 void
 read_command_file (FILE *stream)
 {
   struct ui *ui = current_ui;
-  struct cleanup *cleanups;
 
-  cleanups = make_cleanup (do_restore_instream_cleanup, ui->instream);
-  ui->instream = stream;
+  scoped_restore save_instream
+    = make_scoped_restore (&ui->instream, stream);
 
   /* Read commands from `instream' and execute them until end of file
      or error reading instream.  */
@@ -483,8 +425,6 @@ read_command_file (FILE *stream)
 	break;
       command_handler (command);
     }
-
-  do_cleanups (cleanups);
 }
 
 void (*pre_init_ui_hook) (void);
@@ -498,15 +438,9 @@ do_chdir_cleanup (void *old_dir)
 }
 #endif
 
-struct cleanup *
-prepare_execute_command (void)
+scoped_value_mark
+prepare_execute_command ()
 {
-  struct value *mark;
-  struct cleanup *cleanup;
-
-  mark = value_mark ();
-  cleanup = make_cleanup_value_free_to_mark (mark);
-
   /* With multiple threads running while the one we're examining is
      stopped, the dcache can get stale without us being able to detect
      it.  For the duration of the command, though, use the dcache to
@@ -514,7 +448,7 @@ prepare_execute_command (void)
   if (non_stop)
     target_dcache_invalidate ();
 
-  return cleanup;
+  return scoped_value_mark ();
 }
 
 /* Tell the user if the language has changed (except first time) after
@@ -594,12 +528,12 @@ maybe_wait_sync_command_done (int was_sync)
 void
 execute_command (char *p, int from_tty)
 {
-  struct cleanup *cleanup_if_error, *cleanup;
+  struct cleanup *cleanup_if_error;
   struct cmd_list_element *c;
   char *line;
 
   cleanup_if_error = make_bpstat_clear_actions_cleanup ();
-  cleanup = prepare_execute_command ();
+  scoped_value_mark cleanup = prepare_execute_command ();
 
   /* Force cleanup of any alloca areas if using C alloca instead of
      a builtin alloca.  */
@@ -608,7 +542,6 @@ execute_command (char *p, int from_tty)
   /* This can happen when command_line_input hits end of file.  */
   if (p == NULL)
     {
-      do_cleanups (cleanup);
       discard_cleanups (cleanup_if_error);
       return;
     }
@@ -683,7 +616,6 @@ execute_command (char *p, int from_tty)
 
   check_frame_language_change ();
 
-  do_cleanups (cleanup);
   discard_cleanups (cleanup_if_error);
 }
 
@@ -694,33 +626,31 @@ execute_command (char *p, int from_tty)
 std::string
 execute_command_to_string (char *p, int from_tty)
 {
-  struct cleanup *cleanup;
-
   /* GDB_STDOUT should be better already restored during these
      restoration callbacks.  */
-  cleanup = set_batch_flag_and_make_cleanup_restore_page_info ();
+  set_batch_flag_and_restore_page_info save_page_info;
 
   scoped_restore save_async = make_scoped_restore (&current_ui->async, 0);
 
   string_file str_file;
 
-  current_uiout->redirect (&str_file);
-  make_cleanup_ui_out_redirect_pop (current_uiout);
+  {
+    current_uiout->redirect (&str_file);
+    ui_out_redirect_pop redirect_popper (current_uiout);
 
-  scoped_restore save_stdout
-    = make_scoped_restore (&gdb_stdout, &str_file);
-  scoped_restore save_stderr
-    = make_scoped_restore (&gdb_stderr, &str_file);
-  scoped_restore save_stdlog
-    = make_scoped_restore (&gdb_stdlog, &str_file);
-  scoped_restore save_stdtarg
-    = make_scoped_restore (&gdb_stdtarg, &str_file);
-  scoped_restore save_stdtargerr
-    = make_scoped_restore (&gdb_stdtargerr, &str_file);
+    scoped_restore save_stdout
+      = make_scoped_restore (&gdb_stdout, &str_file);
+    scoped_restore save_stderr
+      = make_scoped_restore (&gdb_stderr, &str_file);
+    scoped_restore save_stdlog
+      = make_scoped_restore (&gdb_stdlog, &str_file);
+    scoped_restore save_stdtarg
+      = make_scoped_restore (&gdb_stdtarg, &str_file);
+    scoped_restore save_stdtargerr
+      = make_scoped_restore (&gdb_stdtargerr, &str_file);
 
-  execute_command (p, from_tty);
-
-  do_cleanups (cleanup);
+    execute_command (p, from_tty);
+  }
 
   return std::move (str_file.string ());
 }
@@ -1155,19 +1085,16 @@ static void
 gdb_safe_append_history (void)
 {
   int ret, saved_errno;
-  char *local_history_filename;
-  struct cleanup *old_chain;
 
-  local_history_filename
-    = xstrprintf ("%s-gdb%ld~", history_filename, (long) getpid ());
-  old_chain = make_cleanup (xfree, local_history_filename);
+  std::string local_history_filename
+    = string_printf ("%s-gdb%ld~", history_filename, (long) getpid ());
 
-  ret = rename (history_filename, local_history_filename);
+  ret = rename (history_filename, local_history_filename.c_str ());
   saved_errno = errno;
   if (ret < 0 && saved_errno != ENOENT)
     {
       warning (_("Could not rename %s to %s: %s"),
-	       history_filename, local_history_filename,
+	       history_filename, local_history_filename.c_str (),
 	       safe_strerror (saved_errno));
     }
   else
@@ -1183,24 +1110,23 @@ gdb_safe_append_history (void)
 	     to move it back anyway.  Otherwise a global history file would
 	     never get created!  */
 	   gdb_assert (saved_errno == ENOENT);
-	   write_history (local_history_filename);
+	   write_history (local_history_filename.c_str ());
 	}
       else
 	{
-	  append_history (command_count, local_history_filename);
+	  append_history (command_count, local_history_filename.c_str ());
 	  if (history_is_stifled ())
-	    history_truncate_file (local_history_filename, history_max_entries);
+	    history_truncate_file (local_history_filename.c_str (),
+				   history_max_entries);
 	}
 
-      ret = rename (local_history_filename, history_filename);
+      ret = rename (local_history_filename.c_str (), history_filename);
       saved_errno = errno;
       if (ret < 0 && saved_errno != EEXIST)
         warning (_("Could not rename %s to %s: %s"),
-		 local_history_filename, history_filename,
+		 local_history_filename.c_str (), history_filename,
 		 safe_strerror (saved_errno));
     }
-
-  do_cleanups (old_chain);
 }
 
 /* Read one line from the command input stream `instream' into a local
@@ -1594,7 +1520,7 @@ undo_terminal_modifications_before_exit (void)
 {
   struct ui *saved_top_level = current_ui;
 
-  target_terminal_ours ();
+  target_terminal::ours ();
 
   current_ui = main_ui;
 
@@ -1824,7 +1750,7 @@ set_history_size_command (char *args, int from_tty, struct cmd_list_element *c)
 }
 
 void
-set_history (char *args, int from_tty)
+set_history (const char *args, int from_tty)
 {
   printf_unfiltered (_("\"set history\" must be followed "
 		       "by the name of a history subcommand.\n"));
@@ -1832,7 +1758,7 @@ set_history (char *args, int from_tty)
 }
 
 void
-show_history (char *args, int from_tty)
+show_history (const char *args, int from_tty)
 {
   cmd_show_list (showhistlist, from_tty, "");
 }
@@ -2023,7 +1949,7 @@ init_main (void)
 
   /* Setup important stuff for command line editing.  */
   rl_completion_word_break_hook = gdb_completion_word_break_characters;
-  rl_completion_entry_function = readline_line_completion_function;
+  rl_attempted_completion_function = gdb_rl_attempted_completion_function;
   set_rl_completer_word_break_characters (default_word_break_characters ());
   rl_completer_quote_characters = get_gdb_completer_quote_characters ();
   rl_completion_display_matches_hook = cli_display_match_list;

@@ -353,21 +353,19 @@ tui_default_win_viewport_height (enum tui_win_type type,
 /* Complete possible layout names.  TEXT is the complete text entered so
    far, WORD is the word currently being completed.  */
 
-static VEC (char_ptr) *
+static void
 layout_completer (struct cmd_list_element *ignore,
+		  completion_tracker &tracker,
 		  const char *text, const char *word)
 {
   static const char *layout_names [] =
     { "src", "asm", "split", "regs", "next", "prev", NULL };
 
-  return complete_on_enum (layout_names, text, word);
+  complete_on_enum (tracker, layout_names, text, word);
 }
 
 /* Function to initialize gdb commands, for tui window layout
    manipulation.  */
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_tui_layout;
 
 void
 _initialize_tui_layout (void)
@@ -406,15 +404,13 @@ tui_set_layout_by_name (const char *layout_name)
   if (layout_name != (char *) NULL)
     {
       int i;
-      char *buf_ptr;
       enum tui_layout_type new_layout = UNDEFINED_LAYOUT;
       enum tui_layout_type cur_layout = tui_current_layout ();
-      struct cleanup *old_chain;
 
-      buf_ptr = (char *) xstrdup (layout_name);
-      for (i = 0; (i < strlen (layout_name)); i++)
-	buf_ptr[i] = toupper (buf_ptr[i]);
-      old_chain = make_cleanup (xfree, buf_ptr);
+      std::string copy = layout_name;
+      for (i = 0; i < copy.size (); i++)
+	copy[i] = toupper (copy[i]);
+      const char *buf_ptr = copy.c_str ();
 
       /* First check for ambiguous input.  */
       if (strlen (buf_ptr) <= 1 && *buf_ptr == 'S')
@@ -452,7 +448,6 @@ tui_set_layout_by_name (const char *layout_name)
 	      tui_set_layout (new_layout);
 	    }
 	}
-      do_cleanups (old_chain);
     }
   else
     status = TUI_FAILURE;

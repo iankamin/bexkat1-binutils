@@ -730,6 +730,10 @@ class scoped_value_mark
     free_to_mark ();
   }
 
+  scoped_value_mark (scoped_value_mark &&other) = default;
+
+  DISABLE_COPY_AND_ASSIGN (scoped_value_mark);
+
   /* Free the values currently on the value stack.  */
   void free_to_mark ()
   {
@@ -927,7 +931,8 @@ extern struct internalvar *lookup_only_internalvar (const char *name);
 
 extern struct internalvar *create_internalvar (const char *name);
 
-extern VEC (char_ptr) *complete_internalvar (const char *name);
+extern void complete_internalvar (completion_tracker &tracker,
+				  const char *name);
 
 /* An internalvar can be dynamically computed by supplying a vector of
    function pointers to perform various operations.  */
@@ -1017,6 +1022,21 @@ extern void value_incref (struct value *val);
 
 extern void value_free (struct value *val);
 
+/* A free policy class to interface std::unique_ptr with
+   value_free.  */
+
+struct value_deleter
+{
+  void operator() (struct value *value) const
+  {
+    value_free (value);
+  }
+};
+
+/* A unique pointer to a struct value.  */
+
+typedef std::unique_ptr<struct value, value_deleter> gdb_value_up;
+
 extern void free_all_values (void);
 
 extern void free_value_chain (struct value *v);
@@ -1044,9 +1064,6 @@ extern void print_longest (struct ui_file *stream, int format,
 
 extern void print_floating (const gdb_byte *valaddr, struct type *type,
 			    struct ui_file *stream);
-
-extern void print_decimal_floating (const gdb_byte *valaddr, struct type *type,
-				    struct ui_file *stream);
 
 extern void value_print (struct value *val, struct ui_file *stream,
 			 const struct value_print_options *options);

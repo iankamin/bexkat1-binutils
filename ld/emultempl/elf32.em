@@ -104,7 +104,7 @@ gld${EMULATION_NAME}_before_parse (void)
   config.has_shared = `if test -n "$GENERATE_SHLIB_SCRIPT" ; then echo TRUE ; else echo FALSE ; fi`;
   config.separate_code = `if test "x${SEPARATE_CODE}" = xyes ; then echo TRUE ; else echo FALSE ; fi`;
   `if test -n "$CALL_NOP_BYTE" ; then echo link_info.call_nop_byte = $CALL_NOP_BYTE; fi`;
-  link_info.check_relocs_after_open_input = `if test "x${CHECK_RELOCS_AFTER_OPEN_INPUT}" = xyes ; then echo TRUE ; else echo FALSE ; fi`;
+  link_info.check_relocs_after_open_input = TRUE;
   link_info.relro = DEFAULT_LD_Z_RELRO;
 }
 
@@ -120,6 +120,13 @@ gld${EMULATION_NAME}_after_parse (void)
   if (bfd_link_pie (&link_info))
     link_info.flags_1 |= (bfd_vma) DF_1_PIE;
 
+  if (bfd_link_executable (&link_info)
+      && link_info.nointerp)
+    {
+      if (link_info.dynamic_undefined_weak > 0)
+	einfo (_("%P: warning: -z dynamic-undefined-weak ignored\n"));
+      link_info.dynamic_undefined_weak = 0;
+    }
   after_parse_default ();
 }
 
@@ -272,7 +279,7 @@ gld${EMULATION_NAME}_stat_needed (lang_input_statement_type *s)
 
   if (bfd_stat (s->the_bfd, &st) != 0)
     {
-      einfo ("%P:%B: bfd_stat failed: %E\n", s->the_bfd);
+      einfo (_("%P:%B: bfd_stat failed: %E\n"), s->the_bfd);
       return;
     }
 
@@ -312,7 +319,7 @@ gld${EMULATION_NAME}_stat_needed (lang_input_statement_type *s)
     soname = lbasename (s->filename);
 
   if (filename_ncmp (soname, global_needed->name, suffix - global_needed->name) == 0)
-    einfo ("%P: warning: %s, needed by %B, may conflict with %s\n",
+    einfo (_("%P: warning: %s, needed by %B, may conflict with %s\n"),
 	   global_needed->name, global_needed->by, soname);
 }
 
@@ -374,7 +381,7 @@ gld${EMULATION_NAME}_try_needed (struct dt_needed *needed,
       struct bfd_link_needed_list *needs;
 
       if (! bfd_elf_get_bfd_needed_list (abfd, &needs))
-	einfo ("%F%P:%B: bfd_elf_get_bfd_needed_list failed: %E\n", abfd);
+	einfo (_("%F%P:%B: bfd_elf_get_bfd_needed_list failed: %E\n"), abfd);
 
       if (needs != NULL)
 	{
@@ -431,7 +438,7 @@ fragment <<EOF
      can only check that using stat.  */
 
   if (bfd_stat (abfd, &global_stat) != 0)
-    einfo ("%F%P:%B: bfd_stat failed: %E\n", abfd);
+    einfo (_("%F%P:%B: bfd_stat failed: %E\n"), abfd);
 
   /* First strip off everything before the last '/'.  */
   soname = lbasename (abfd->filename);
@@ -467,7 +474,7 @@ fragment <<EOF
 
   /* Add this file into the symbol table.  */
   if (! bfd_link_add_symbols (abfd, &link_info))
-    einfo ("%F%B: error adding symbols: %E\n", abfd);
+    einfo (_("%F%B: error adding symbols: %E\n"), abfd);
 
   return TRUE;
 }
@@ -527,7 +534,7 @@ gld${EMULATION_NAME}_search_needed (const char *path,
 
       /* PR 20535: Support the same pseudo-environment variables that
 	 are supported by ld.so.  Namely, $ORIGIN, $LIB and $PLATFORM.
-         Since there can be more than one occurrence of these tokens in
+	 Since there can be more than one occurrence of these tokens in
 	 the path we loop until no more are found.  Since we might not
 	 be able to substitute some of the tokens we maintain an offset
 	 into the filename for where we should begin our scan.  */
@@ -664,8 +671,8 @@ gld${EMULATION_NAME}_search_needed (const char *path,
 		/* Restore the path separator.  */
 		* end = '/';
 
-	      /* PR 20784: Make sure that we resume the scan
-	         *after* the token that we could not replace.  */
+	      /* PR 20784: Make sure that we resume the scan *after*
+		 the token that we could not replace.  */
 	      offset = (var + 1) - filename;
 	    }
 
@@ -1186,7 +1193,7 @@ setup_build_id (bfd *ibfd)
   size = id_note_section_size (ibfd);
   if (size == 0)
     {
-      einfo ("%P: warning: unrecognized --build-id style ignored.\n");
+      einfo (_("%P: warning: unrecognized --build-id style ignored.\n"));
       return FALSE;
     }
 
@@ -1204,8 +1211,8 @@ setup_build_id (bfd *ibfd)
       return TRUE;
     }
 
-  einfo ("%P: warning: Cannot create .note.gnu.build-id section,"
-	 " --build-id ignored.\n");
+  einfo (_("%P: warning: Cannot create .note.gnu.build-id section,"
+	   " --build-id ignored.\n"));
   return FALSE;
 }
 
@@ -1234,7 +1241,7 @@ gld${EMULATION_NAME}_after_open (void)
 
       if (link_info.out_implib_bfd == NULL)
 	{
-	  einfo ("%F%s: Can't open for writing: %E\n",
+	  einfo (_("%F%s: Can't open for writing: %E\n"),
 		 command_line.out_implib_filename);
 	}
     }
@@ -1311,7 +1318,7 @@ gld${EMULATION_NAME}_after_open (void)
 	      else if (seen_type != type)
 		{
 		  einfo (_("%P%F: compact frame descriptions incompatible with"
-			 " DWARF2 .eh_frame from %B\n"),
+			   " DWARF2 .eh_frame from %B\n"),
 			 type == DWARF2_EH_HDR ? abfd : elfbfd);
 		  break;
 		}
@@ -1345,8 +1352,8 @@ gld${EMULATION_NAME}_after_open (void)
 	    }
 	}
       if (warn_eh_frame)
-	einfo ("%P: warning: Cannot create .eh_frame_hdr section,"
-	       " --eh-frame-hdr ignored.\n");
+	einfo (_("%P: warning: Cannot create .eh_frame_hdr section,"
+		 " --eh-frame-hdr ignored.\n"));
     }
 
   /* Get the list of files which appear in DT_NEEDED entries in
@@ -1534,7 +1541,8 @@ fragment <<EOF
       if (force < 2)
 	continue;
 
-      einfo ("%P: warning: %s, needed by %B, not found (try using -rpath or -rpath-link)\n",
+      einfo (_("%P: warning: %s, needed by %B, not found "
+	       "(try using -rpath or -rpath-link)\n"),
 	     l->name, l->by);
     }
 
@@ -1575,7 +1583,7 @@ gld${EMULATION_NAME}_find_exp_assignment (etree_type *exp)
 					       &link_info,
 					       exp->assign.dst, provide,
 					       exp->assign.hidden))
-	    einfo ("%P%F: failed to record assignment to %s: %E\n",
+	    einfo (_("%P%F: failed to record assignment to %s: %E\n"),
 		   exp->assign.dst);
 	}
       gld${EMULATION_NAME}_find_exp_assignment (exp->assign.src);
@@ -1700,34 +1708,36 @@ gld${EMULATION_NAME}_before_allocation (void)
       /* Make __ehdr_start hidden if it has been referenced, to
 	 prevent the symbol from being dynamic.  */
       if (!bfd_link_relocatable (&link_info))
-       {
-         struct elf_link_hash_entry *h
-           = elf_link_hash_lookup (elf_hash_table (&link_info), "__ehdr_start",
-                                   FALSE, FALSE, TRUE);
+	{
+	  struct elf_link_hash_table *htab = elf_hash_table (&link_info);
+	  struct elf_link_hash_entry *h
+	    = elf_link_hash_lookup (htab, "__ehdr_start", FALSE, FALSE, TRUE);
 
-         /* Only adjust the export class if the symbol was referenced
-            and not defined, otherwise leave it alone.  */
-         if (h != NULL
-             && (h->root.type == bfd_link_hash_new
-                 || h->root.type == bfd_link_hash_undefined
-                 || h->root.type == bfd_link_hash_undefweak
-                 || h->root.type == bfd_link_hash_common))
-           {
-             _bfd_elf_link_hash_hide_symbol (&link_info, h, TRUE);
-             if (ELF_ST_VISIBILITY (h->other) != STV_INTERNAL)
-               h->other = (h->other & ~ELF_ST_VISIBILITY (-1)) | STV_HIDDEN;
-	     /* Don't leave the symbol undefined.  Undefined hidden
-		symbols typically won't have dynamic relocations, but
-		we most likely will need dynamic relocations for
-		__ehdr_start if we are building a PIE or shared
-		library.  */
-	     ehdr_start = h;
-	     ehdr_start_save = h->root;
-	     h->root.type = bfd_link_hash_defined;
-	     h->root.u.def.section = bfd_abs_section_ptr;
-	     h->root.u.def.value = 0;
-           }
-       }
+	  /* Only adjust the export class if the symbol was referenced
+	     and not defined, otherwise leave it alone.  */
+	  if (h != NULL
+	      && (h->root.type == bfd_link_hash_new
+		  || h->root.type == bfd_link_hash_undefined
+		  || h->root.type == bfd_link_hash_undefweak
+		  || h->root.type == bfd_link_hash_common))
+	    {
+	      const struct elf_backend_data *bed;
+	      bed = get_elf_backend_data (link_info.output_bfd);
+	      (*bed->elf_backend_hide_symbol) (&link_info, h, TRUE);
+	      if (ELF_ST_VISIBILITY (h->other) != STV_INTERNAL)
+		h->other = (h->other & ~ELF_ST_VISIBILITY (-1)) | STV_HIDDEN;
+	      /* Don't leave the symbol undefined.  Undefined hidden
+		 symbols typically won't have dynamic relocations, but
+		 we most likely will need dynamic relocations for
+		 __ehdr_start if we are building a PIE or shared
+		 library.  */
+	      ehdr_start = h;
+	      ehdr_start_save = h->root;
+	      h->root.type = bfd_link_hash_defined;
+	      h->root.u.def.section = bfd_abs_section_ptr;
+	      h->root.u.def.value = 0;
+	    }
+	}
 
       /* If we are going to make any variable assignments, we need to
 	 let the ELF backend know about them in case the variables are
@@ -1776,7 +1786,7 @@ gld${EMULATION_NAME}_before_allocation (void)
 	  command_line.filter_shlib, audit, depaudit,
 	  (const char * const *) command_line.auxiliary_filters,
 	  &link_info, &sinterp)))
-    einfo ("%P%F: failed to set dynamic section sizes: %E\n");
+    einfo (_("%P%F: failed to set dynamic section sizes: %E\n"));
 
 ${ELF_INTERPRETER_SET_DEFAULT}
   /* Let the user override the dynamic linker we are using.  */
@@ -1810,7 +1820,7 @@ ${ELF_INTERPRETER_SET_DEFAULT}
 	msg = (char *) xmalloc ((size_t) (sz + 1));
 	if (! bfd_get_section_contents (is->the_bfd, s,	msg,
 					(file_ptr) 0, sz))
-	  einfo ("%F%B: Can't read contents of section .gnu.warning: %E\n",
+	  einfo (_("%F%B: Can't read contents of section .gnu.warning: %E\n"),
 		 is->the_bfd);
 	msg[sz] = '\0';
 	(*link_info.callbacks->warning) (&link_info, msg,
@@ -1838,7 +1848,7 @@ ${ELF_INTERPRETER_SET_DEFAULT}
   before_allocation_default ();
 
   if (!bfd_elf_size_dynsym_hash_dynstr (link_info.output_bfd, &link_info))
-    einfo ("%P%F: failed to set dynamic section sizes: %E\n");
+    einfo (_("%P%F: failed to set dynamic section sizes: %E\n"));
 
   if (ehdr_start != NULL)
     {
@@ -1930,7 +1940,7 @@ gld${EMULATION_NAME}_open_dynamic_archive
 	 filename we recorded earlier.  */
 
       if (!entry->flags.full_name_provided)
-        filename = lbasename (entry->filename);
+	filename = lbasename (entry->filename);
       bfd_elf_set_dt_needed_name (entry->the_bfd, filename);
     }
 
@@ -2008,6 +2018,29 @@ output_rel_find (asection *sec, int isdyn)
   return last;
 }
 
+/* Return whether IN is suitable to be part of OUT.  */
+
+static bfd_boolean
+elf_orphan_compatible (asection *in, asection *out)
+{
+  /* Non-zero sh_info implies a section with SHF_INFO_LINK with
+     unknown semantics for the generic linker, or a SHT_REL/SHT_RELA
+     section where sh_info specifies a symbol table.  (We won't see
+     SHT_GROUP, SHT_SYMTAB or SHT_DYNSYM sections here.)  We clearly
+     can't merge SHT_REL/SHT_RELA using differing symbol tables, and
+     shouldn't merge sections with differing unknown semantics.  */
+  if (elf_section_data (out)->this_hdr.sh_info
+      != elf_section_data (in)->this_hdr.sh_info)
+    return FALSE;
+  /* We can't merge two sections with differing SHF_EXCLUDE when doing
+     a relocatable link.  */
+  if (bfd_link_relocatable (&link_info)
+      && ((elf_section_flags (out) ^ elf_section_flags (in)) & SHF_EXCLUDE) != 0)
+    return FALSE;
+  return _bfd_elf_match_sections_by_type (link_info.output_bfd, out,
+					  in->owner, in);
+}
+
 /* Place an orphan section.  We use this to put random SHF_ALLOC
    sections in the right segment.  */
 
@@ -2064,8 +2097,9 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
   lang_output_section_statement_type *os;
   lang_output_section_statement_type *match_by_name = NULL;
   int isdyn = 0;
-  int iself = s->owner->xvec->flavour == bfd_target_elf_flavour;
-  unsigned int sh_type = iself ? elf_section_type (s) : SHT_NULL;
+  int elfinput = s->owner->xvec->flavour == bfd_target_elf_flavour;
+  int elfoutput = link_info.output_bfd->xvec->flavour == bfd_target_elf_flavour;
+  unsigned int sh_type = elfinput ? elf_section_type (s) : SHT_NULL;
   flagword flags;
   asection *nexts;
 
@@ -2073,7 +2107,7 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
       && link_info.combreloc
       && (s->flags & SEC_ALLOC))
     {
-      if (iself)
+      if (elfinput)
 	switch (sh_type)
 	  {
 	  case SHT_RELA:
@@ -2095,6 +2129,8 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
     }
 
   if (!bfd_link_relocatable (&link_info)
+      && elfinput
+      && elfoutput
       && (s->flags & SEC_ALLOC) != 0
       && (elf_section_flags (s) & SHF_GNU_MBIND) != 0)
     {
@@ -2135,7 +2171,10 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
 	secname = ".mbind.text";
     }
 
-  /* Look through the script to see where to place this section.  */
+  /* Look through the script to see where to place this section.  The
+     script includes entries added by previous lang_insert_orphan
+     calls, so this loop puts multiple compatible orphans of the same
+     name into a single output section.  */
   if (constraint == 0)
     for (os = lang_output_section_find (secname);
 	 os != NULL;
@@ -2145,29 +2184,19 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
 	   lang_insert_orphan to create a new output section.  */
 	constraint = SPECIAL;
 
-	/* SEC_EXCLUDE is cleared when doing a relocatable link.  But
-	   we can't merge 2 input sections with the same name when only
-	   one of them has SHF_EXCLUDE.  Don't merge 2 sections with
-	   different sh_info.  */
+	/* Check to see if we already have an output section statement
+	   with this name, and its bfd section has compatible flags.
+	   If the section already exists but does not have any flags
+	   set, then it has been created by the linker, possibly as a
+	   result of a --section-start command line switch.  */
 	if (os->bfd_section != NULL
-	    && (elf_section_data (os->bfd_section)->this_hdr.sh_info
-		== elf_section_data (s)->this_hdr.sh_info)
 	    && (os->bfd_section->flags == 0
-		|| ((!bfd_link_relocatable (&link_info)
-		     || (iself && (((elf_section_flags (s)
-				     ^ elf_section_flags (os->bfd_section))
-				    & SHF_EXCLUDE) == 0)))
-		    && ((s->flags ^ os->bfd_section->flags)
+		|| (((s->flags ^ os->bfd_section->flags)
 		     & (SEC_LOAD | SEC_ALLOC)) == 0
-		    && _bfd_elf_match_sections_by_type (link_info.output_bfd,
-							os->bfd_section,
-							s->owner, s))))
+		    && (!elfinput
+			|| !elfoutput
+			|| elf_orphan_compatible (s, os->bfd_section)))))
 	  {
-	    /* We already have an output section statement with this
-	       name, and its bfd section has compatible flags.
-	       If the section already exists but does not have any flags
-	       set, then it has been created by the linker, probably as a
-	       result of a --section-start command line switch.  */
 	    lang_add_section (&os->children, s, NULL, os);
 	    return os;
 	  }
@@ -2243,8 +2272,8 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
   else if ((flags & SEC_ALLOC) == 0)
     ;
   else if ((flags & SEC_LOAD) != 0
-	   && ((iself && sh_type == SHT_NOTE)
-	       || (!iself && CONST_STRNEQ (secname, ".note"))))
+	   && ((elfinput && sh_type == SHT_NOTE)
+	       || (!elfinput && CONST_STRNEQ (secname, ".note"))))
     place = &hold[orphan_interp];
   else if ((flags & (SEC_LOAD | SEC_HAS_CONTENTS | SEC_THREAD_LOCAL)) == 0)
     place = &hold[orphan_bss];
@@ -2254,8 +2283,8 @@ gld${EMULATION_NAME}_place_orphan (asection *s,
     place = &hold[orphan_tdata];
   else if ((flags & SEC_READONLY) == 0)
     place = &hold[orphan_data];
-  else if (((iself && (sh_type == SHT_RELA || sh_type == SHT_REL))
-	    || (!iself && CONST_STRNEQ (secname, ".rel")))
+  else if (((elfinput && (sh_type == SHT_RELA || sh_type == SHT_REL))
+	    || (!elfinput && CONST_STRNEQ (secname, ".rel")))
 	   && (flags & SEC_LOAD) != 0)
     place = &hold[orphan_rel];
   else if ((flags & SEC_CODE) == 0)
@@ -2297,7 +2326,7 @@ gld${EMULATION_NAME}_after_allocation (void)
   int need_layout = bfd_elf_discard_info (link_info.output_bfd, &link_info);
 
   if (need_layout < 0)
-    einfo ("%X%P: .eh_frame/.stab edit: %E\n");
+    einfo (_("%X%P: .eh_frame/.stab edit: %E\n"));
   else
     gld${EMULATION_NAME}_map_segments (need_layout);
 }
@@ -2657,6 +2686,10 @@ fragment <<EOF
 	  link_info.noexecstack = TRUE;
 	  link_info.execstack = FALSE;
 	}
+      else if (strcmp (optarg, "globalaudit") == 0)
+	{
+	  link_info.flags_1 |= DF_1_GLOBAUDIT;
+	}
 EOF
 
 if test x"$GENERATE_SHLIB_SCRIPT" = xyes; then
@@ -2780,6 +2813,7 @@ struct ld_emulation_xfer_struct ld_${EMULATION_NAME}_emulation =
   ${LDEMUL_HLL-hll_default},
   ${LDEMUL_AFTER_PARSE-gld${EMULATION_NAME}_after_parse},
   ${LDEMUL_AFTER_OPEN-gld${EMULATION_NAME}_after_open},
+  ${LDEMUL_AFTER_CHECK_RELOCS-after_check_relocs_default},
   ${LDEMUL_AFTER_ALLOCATION-gld${EMULATION_NAME}_after_allocation},
   ${LDEMUL_SET_OUTPUT_ARCH-set_output_arch_default},
   ${LDEMUL_CHOOSE_TARGET-ldemul_default_target},

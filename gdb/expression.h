@@ -22,7 +22,6 @@
 
 
 #include "symtab.h"		/* Needed for "struct block" type.  */
-#include "doublest.h"		/* Needed for DOUBLEST.  */
 
 
 /* Definitions for saved C expressions.  */
@@ -64,9 +63,9 @@ union exp_element
   {
     enum exp_opcode opcode;
     struct symbol *symbol;
+    struct minimal_symbol *msymbol;
     LONGEST longconst;
-    DOUBLEST doubleconst;
-    gdb_byte decfloatconst[16];
+    gdb_byte floatconst[16];
     /* Really sizeof (union exp_element) characters (or less for the last
        element of a string).  */
     char string;

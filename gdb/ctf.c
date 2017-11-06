@@ -311,8 +311,6 @@ ctf_target_save (struct trace_file_writer *self,
 static void
 ctf_start (struct trace_file_writer *self, const char *dirname)
 {
-  char *file_name;
-  struct cleanup *old_chain;
   struct ctf_trace_file_writer *writer
     = (struct ctf_trace_file_writer *) self;
   int i;
@@ -325,24 +323,20 @@ ctf_start (struct trace_file_writer *self, const char *dirname)
 
   memset (&writer->tcs, '\0', sizeof (writer->tcs));
 
-  file_name = xstrprintf ("%s/%s", dirname, CTF_METADATA_NAME);
-  old_chain = make_cleanup (xfree, file_name);
+  std::string file_name = string_printf ("%s/%s", dirname, CTF_METADATA_NAME);
 
-  writer->tcs.metadata_fd = fopen (file_name, "w");
+  writer->tcs.metadata_fd = fopen (file_name.c_str (), "w");
   if (writer->tcs.metadata_fd == NULL)
     error (_("Unable to open file '%s' for saving trace data (%s)"),
-	   file_name, safe_strerror (errno));
-  do_cleanups (old_chain);
+	   file_name.c_str (), safe_strerror (errno));
 
   ctf_save_metadata_header (&writer->tcs);
 
-  file_name = xstrprintf ("%s/%s", dirname, CTF_DATASTREAM_NAME);
-  old_chain = make_cleanup (xfree, file_name);
-  writer->tcs.datastream_fd = fopen (file_name, "w");
+  file_name = string_printf ("%s/%s", dirname, CTF_DATASTREAM_NAME);
+  writer->tcs.datastream_fd = fopen (file_name.c_str (), "w");
   if (writer->tcs.datastream_fd == NULL)
     error (_("Unable to open file '%s' for saving trace data (%s)"),
-	   file_name, safe_strerror (errno));
-  do_cleanups (old_chain);
+	   file_name.c_str (), safe_strerror (errno));
 }
 
 /* This is the implementation of trace_file_write_ops method
@@ -1192,7 +1186,7 @@ static void
 ctf_fetch_registers (struct target_ops *ops,
 		     struct regcache *regcache, int regno)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct bt_ctf_event *event = NULL;
   struct bt_iter_pos *pos;
 
@@ -1641,10 +1635,10 @@ ctf_trace_find (struct target_ops *self, enum trace_find_type type, int num,
    frame, extract memory range information, and return them in
    traceframe_info.  */
 
-static struct traceframe_info *
+static traceframe_info_up
 ctf_traceframe_info (struct target_ops *self)
 {
-  struct traceframe_info *info = XCNEW (struct traceframe_info);
+  traceframe_info_up info (new traceframe_info);
   const char *name;
   struct bt_iter_pos *pos;
 
@@ -1669,14 +1663,14 @@ ctf_traceframe_info (struct target_ops *self)
 	    = bt_ctf_get_top_level_scope (event,
 					  BT_EVENT_FIELDS);
 	  const struct bt_definition *def;
-	  struct mem_range *r;
 
-	  r = VEC_safe_push (mem_range_s, info->memory, NULL);
 	  def = bt_ctf_get_field (event, scope, "address");
-	  r->start = bt_ctf_get_uint64 (def);
+	  CORE_ADDR start = bt_ctf_get_uint64 (def);
 
 	  def = bt_ctf_get_field (event, scope, "length");
-	  r->length = (uint16_t) bt_ctf_get_uint64 (def);
+	  int length = (uint16_t) bt_ctf_get_uint64 (def);
+
+	  info->memory.emplace_back (start, length);
 	}
       else if (strcmp (name, "tsv") == 0)
 	{
@@ -1688,7 +1682,7 @@ ctf_traceframe_info (struct target_ops *self)
 
 	  def = bt_ctf_get_field (event, scope, "num");
 	  vnum = (int) bt_ctf_get_uint64 (def);
-	  VEC_safe_push (int, info->tvars, vnum);
+	  info->tvars.push_back (vnum);
 	}
       else
 	{
@@ -1730,10 +1724,6 @@ Specify the filename of the CTF directory.";
 }
 
 #endif
-
-/* -Wmissing-prototypes */
-
-extern initialize_file_ftype _initialize_ctf;
 
 /* module initialization */
 

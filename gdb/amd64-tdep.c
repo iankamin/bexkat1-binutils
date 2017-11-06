@@ -41,20 +41,12 @@
 #include "i387-tdep.h"
 #include "x86-xstate.h"
 #include <algorithm>
-
-#include "features/i386/amd64.c"
-#include "features/i386/amd64-avx.c"
-#include "features/i386/amd64-mpx.c"
-#include "features/i386/amd64-avx-mpx.c"
-#include "features/i386/amd64-avx-avx512.c"
-#include "features/i386/amd64-avx-mpx-avx512-pku.c"
-
-#include "features/i386/x32.c"
-#include "features/i386/x32-avx.c"
-#include "features/i386/x32-avx-avx512.c"
-
+#include "target-descriptions.h"
+#include "arch/amd64.h"
+#include "producer.h"
 #include "ax.h"
 #include "ax-gdb.h"
+#include "common/byte-vector.h"
 
 /* Note that the AMD64 architecture was previously known as x86-64.
    The latter is (forever) engraved into the canonical system name as
@@ -1056,22 +1048,22 @@ struct amd64_insn
   gdb_byte *raw_insn;
 };
 
-struct displaced_step_closure
+struct amd64_displaced_step_closure : public displaced_step_closure
 {
+  amd64_displaced_step_closure (int insn_buf_len)
+  : insn_buf (insn_buf_len, 0)
+  {}
+
   /* For rip-relative insns, saved copy of the reg we use instead of %rip.  */
-  int tmp_used;
+  int tmp_used = 0;
   int tmp_regno;
   ULONGEST tmp_save;
 
   /* Details of the instruction.  */
   struct amd64_insn insn_details;
 
-  /* Amount of space allocated to insn_buf.  */
-  int max_len;
-
-  /* The possibly modified insn.
-     This is a variable-length field.  */
-  gdb_byte insn_buf[1];
+  /* The possibly modified insn.  */
+  gdb::byte_vector insn_buf;
 };
 
 /* WARNING: Keep onebyte_has_modrm, twobyte_has_modrm in sync with
@@ -1312,7 +1304,7 @@ amd64_get_insn_details (gdb_byte *insn, struct amd64_insn *details)
    We set base = pc + insn_length so we can leave disp unchanged.  */
 
 static void
-fixup_riprel (struct gdbarch *gdbarch, struct displaced_step_closure *dsc,
+fixup_riprel (struct gdbarch *gdbarch, amd64_displaced_step_closure *dsc,
 	      CORE_ADDR from, CORE_ADDR to, struct regcache *regs)
 {
   const struct amd64_insn *insn_details = &dsc->insn_details;
@@ -1327,8 +1319,8 @@ fixup_riprel (struct gdbarch *gdbarch, struct displaced_step_closure *dsc,
   ++insn;
 
   /* Compute the rip-relative address.	*/
-  insn_length = gdb_buffered_insn_length (gdbarch, dsc->insn_buf,
-					  dsc->max_len, from);
+  insn_length = gdb_buffered_insn_length (gdbarch, dsc->insn_buf.data (),
+					  dsc->insn_buf.size (), from);
   rip_base = from + insn_length;
 
   /* We need a register to hold the address.
@@ -1362,7 +1354,7 @@ fixup_riprel (struct gdbarch *gdbarch, struct displaced_step_closure *dsc,
 
 static void
 fixup_displaced_copy (struct gdbarch *gdbarch,
-		      struct displaced_step_closure *dsc,
+		      amd64_displaced_step_closure *dsc,
 		      CORE_ADDR from, CORE_ADDR to, struct regcache *regs)
 {
   const struct amd64_insn *details = &dsc->insn_details;
@@ -1389,14 +1381,10 @@ amd64_displaced_step_copy_insn (struct gdbarch *gdbarch,
   /* Extra space for sentinels so fixup_{riprel,displaced_copy} don't have to
      continually watch for running off the end of the buffer.  */
   int fixup_sentinel_space = len;
-  struct displaced_step_closure *dsc
-    = ((struct displaced_step_closure *)
-       xmalloc (sizeof (*dsc) + len + fixup_sentinel_space));
+  amd64_displaced_step_closure *dsc
+    = new amd64_displaced_step_closure (len + fixup_sentinel_space);
   gdb_byte *buf = &dsc->insn_buf[0];
   struct amd64_insn *details = &dsc->insn_details;
-
-  dsc->tmp_used = 0;
-  dsc->max_len = len + fixup_sentinel_space;
 
   read_memory (from, buf, len);
 
@@ -1592,14 +1580,15 @@ amd64_insn_is_jump (struct gdbarch *gdbarch, CORE_ADDR addr)
 
 void
 amd64_displaced_step_fixup (struct gdbarch *gdbarch,
-			    struct displaced_step_closure *dsc,
+			    struct displaced_step_closure *dsc_,
 			    CORE_ADDR from, CORE_ADDR to,
 			    struct regcache *regs)
 {
+  amd64_displaced_step_closure *dsc = (amd64_displaced_step_closure *) dsc_;
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   /* The offset we applied to the instruction's address.  */
   ULONGEST insn_offset = to - from;
-  gdb_byte *insn = dsc->insn_buf;
+  gdb_byte *insn = dsc->insn_buf.data ();
   const struct amd64_insn *insn_details = &dsc->insn_details;
 
   if (debug_displaced)
@@ -2933,7 +2922,7 @@ static void
 amd64_supply_fpregset (const struct regset *regset, struct regcache *regcache,
 		       int regnum, const void *fpregs, size_t len)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   const struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   gdb_assert (len >= tdep->sizeof_fpregset);
@@ -2950,7 +2939,7 @@ amd64_collect_fpregset (const struct regset *regset,
 			const struct regcache *regcache,
 			int regnum, void *fpregs, size_t len)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   const struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   gdb_assert (len >= tdep->sizeof_fpregset);
@@ -3005,7 +2994,8 @@ static const int amd64_record_regmap[] =
 };
 
 void
-amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch,
+		const target_desc *default_tdesc)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   const struct target_desc *tdesc = info.target_desc;
@@ -3022,7 +3012,7 @@ amd64_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
   tdep->fpregset = &amd64_fpregset;
 
   if (! tdesc_has_registers (tdesc))
-    tdesc = tdesc_amd64;
+    tdesc = default_tdesc;
   tdep->tdesc = tdesc;
 
   tdep->num_core_regs = AMD64_NUM_GREGS + I387_NUM_REGS;
@@ -3196,16 +3186,12 @@ amd64_x32_pseudo_register_type (struct gdbarch *gdbarch, int regnum)
 }
 
 void
-amd64_x32_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
+amd64_x32_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch,
+		    const target_desc *default_tdesc)
 {
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-  const struct target_desc *tdesc = info.target_desc;
 
-  amd64_init_abi (info, gdbarch);
-
-  if (! tdesc_has_registers (tdesc))
-    tdesc = tdesc_x32;
-  tdep->tdesc = tdesc;
+  amd64_init_abi (info, gdbarch, default_tdesc);
 
   tdep->num_dword_regs = 17;
   set_tdesc_pseudo_register_type (gdbarch, amd64_x32_pseudo_register_type);
@@ -3219,39 +3205,46 @@ amd64_x32_init_abi (struct gdbarch_info info, struct gdbarch *gdbarch)
 const struct target_desc *
 amd64_target_description (uint64_t xcr0)
 {
-  switch (xcr0 & X86_XSTATE_ALL_MASK)
-    {
-    case X86_XSTATE_AVX_MPX_AVX512_PKU_MASK:
-      return tdesc_amd64_avx_mpx_avx512_pku;
-    case X86_XSTATE_AVX_AVX512_MASK:
-      return tdesc_amd64_avx_avx512;
-    case X86_XSTATE_MPX_MASK:
-      return tdesc_amd64_mpx;
-    case X86_XSTATE_AVX_MPX_MASK:
-      return tdesc_amd64_avx_mpx;
-    case X86_XSTATE_AVX_MASK:
-      return tdesc_amd64_avx;
-    default:
-      return tdesc_amd64;
-    }
-}
+  static target_desc *amd64_tdescs \
+    [2/*AVX*/][2/*MPX*/][2/*AVX512*/][2/*PKRU*/] = {};
+  target_desc **tdesc;
 
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-void _initialize_amd64_tdep (void);
+  tdesc = &amd64_tdescs[(xcr0 & X86_XSTATE_AVX) ? 1 : 0]
+    [(xcr0 & X86_XSTATE_MPX) ? 1 : 0]
+    [(xcr0 & X86_XSTATE_AVX512) ? 1 : 0]
+    [(xcr0 & X86_XSTATE_PKRU) ? 1 : 0];
+
+  if (*tdesc == NULL)
+    *tdesc = amd64_create_target_description (xcr0, false, false);
+
+  return *tdesc;
+}
 
 void
 _initialize_amd64_tdep (void)
 {
-  initialize_tdesc_amd64 ();
-  initialize_tdesc_amd64_avx ();
-  initialize_tdesc_amd64_mpx ();
-  initialize_tdesc_amd64_avx_mpx ();
-  initialize_tdesc_amd64_avx_avx512 ();
-  initialize_tdesc_amd64_avx_mpx_avx512_pku ();
+#if GDB_SELF_TEST
+  struct
+  {
+    const char *xml;
+    uint64_t mask;
+  } xml_masks[] = {
+    { "i386/amd64.xml", X86_XSTATE_SSE_MASK },
+    { "i386/amd64-avx.xml", X86_XSTATE_AVX_MASK },
+    { "i386/amd64-mpx.xml", X86_XSTATE_MPX_MASK },
+    { "i386/amd64-avx-mpx.xml", X86_XSTATE_AVX_MPX_MASK },
+    { "i386/amd64-avx-avx512.xml", X86_XSTATE_AVX_AVX512_MASK },
+    { "i386/amd64-avx-mpx-avx512-pku.xml",
+      X86_XSTATE_AVX_MPX_AVX512_PKU_MASK },
+  };
 
-  initialize_tdesc_x32 ();
-  initialize_tdesc_x32_avx ();
-  initialize_tdesc_x32_avx_avx512 ();
+  for (auto &a : xml_masks)
+    {
+      auto tdesc = amd64_target_description (a.mask);
+
+      selftests::record_xml_tdesc (a.xml, tdesc);
+    }
+#endif /* GDB_SELF_TEST */
 }
 
 
@@ -3271,7 +3264,7 @@ void
 amd64_supply_fxsave (struct regcache *regcache, int regnum,
 		     const void *fxsave)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   i387_supply_fxsave (regcache, regnum, fxsave);
@@ -3294,7 +3287,7 @@ void
 amd64_supply_xsave (struct regcache *regcache, int regnum,
 		    const void *xsave)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   i387_supply_xsave (regcache, regnum, xsave);
@@ -3322,7 +3315,7 @@ void
 amd64_collect_fxsave (const struct regcache *regcache, int regnum,
 		      void *fxsave)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   gdb_byte *regs = (gdb_byte *) fxsave;
 
@@ -3343,7 +3336,7 @@ void
 amd64_collect_xsave (const struct regcache *regcache, int regnum,
 		     void *xsave, int gcore)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   gdb_byte *regs = (gdb_byte *) xsave;
 

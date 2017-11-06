@@ -1640,13 +1640,23 @@ _bfd_coff_get_external_symbols (bfd *abfd)
   size = obj_raw_syment_count (abfd) * symesz;
   if (size == 0)
     return TRUE;
+  /* Check for integer overflow and for unreasonable symbol counts.  */
+  if (size < obj_raw_syment_count (abfd)
+      || (bfd_get_file_size (abfd) > 0
+	  && size > bfd_get_file_size (abfd)))
+    
+    {
+      _bfd_error_handler (_("%B: corrupt symbol count: %#Lx"),
+			  abfd, obj_raw_syment_count (abfd));
+      return FALSE;
+    }
 
   syms = bfd_malloc (size);
   if (syms == NULL)
     {
       /* PR 21013: Provide an error message when the alloc fails.  */
-      _bfd_error_handler (_("%B: Not enough memory to allocate space for %lu symbols"),
-			  abfd, size);
+      _bfd_error_handler (_("%B: not enough memory to allocate space for %#Lx symbols of size %#Lx"),
+			  abfd, obj_raw_syment_count (abfd), symesz);
       return FALSE;
     }
 
@@ -1659,7 +1669,6 @@ _bfd_coff_get_external_symbols (bfd *abfd)
     }
 
   obj_coff_external_syms (abfd) = syms;
-
   return TRUE;
 }
 
@@ -1713,7 +1722,7 @@ _bfd_coff_read_string_table (bfd *abfd)
     {
       _bfd_error_handler
 	/* xgettext: c-format */
-	(_("%B: bad string table size %lu"), abfd, (unsigned long) strsize);
+	(_("%B: bad string table size %Lu"), abfd, strsize);
       bfd_set_error (bfd_error_bad_value);
       return NULL;
     }
@@ -1747,12 +1756,16 @@ _bfd_coff_read_string_table (bfd *abfd)
 bfd_boolean
 _bfd_coff_free_symbols (bfd *abfd)
 {
+  if (! bfd_family_coff (abfd))
+    return FALSE;
+
   if (obj_coff_external_syms (abfd) != NULL
       && ! obj_coff_keep_syms (abfd))
     {
       free (obj_coff_external_syms (abfd));
       obj_coff_external_syms (abfd) = NULL;
     }
+
   if (obj_coff_strings (abfd) != NULL
       && ! obj_coff_keep_strings (abfd))
     {
@@ -1760,6 +1773,7 @@ _bfd_coff_free_symbols (bfd *abfd)
       obj_coff_strings (abfd) = NULL;
       obj_coff_strings_len (abfd) = 0;
     }
+
   return TRUE;
 }
 
@@ -1790,6 +1804,9 @@ coff_get_normalized_symtab (bfd *abfd)
     return NULL;
 
   size = obj_raw_syment_count (abfd) * sizeof (combined_entry_type);
+  /* Check for integer overflow.  */
+  if (size < obj_raw_syment_count (abfd))
+    return NULL;
   internal = (combined_entry_type *) bfd_zalloc (abfd, size);
   if (internal == NULL && size != 0)
     return NULL;

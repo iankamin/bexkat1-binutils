@@ -316,19 +316,19 @@ tui_update_variables (void)
 }
 
 static void
-set_tui_cmd (char *args, int from_tty)
+set_tui_cmd (const char *args, int from_tty)
 {
 }
 
 static void
-show_tui_cmd (char *args, int from_tty)
+show_tui_cmd (const char *args, int from_tty)
 {
 }
 
 static struct cmd_list_element *tuilist;
 
 static void
-tui_command (char *args, int from_tty)
+tui_command (const char *args, int from_tty)
 {
   printf_unfiltered (_("\"tui\" must be followed by the name of a "
                      "tui command.\n"));
@@ -359,12 +359,12 @@ tui_set_var_cmd (char *null_args, int from_tty, struct cmd_list_element *c)
    window names 'next' and 'prev' will also be considered as possible
    completions of the window name.  */
 
-static VEC (char_ptr) *
-window_name_completer (int include_next_prev_p,
+static void
+window_name_completer (completion_tracker &tracker,
+		       int include_next_prev_p,
 		       const char *text, const char *word)
 {
   VEC (const_char_ptr) *completion_name_vec = NULL;
-  VEC (char_ptr) *matches_vec;
   int win_type;
 
   for (win_type = SRC_WIN; win_type < MAX_MAJOR_WINDOWS; win_type++)
@@ -398,46 +398,43 @@ window_name_completer (int include_next_prev_p,
     }
 
   VEC_safe_push (const_char_ptr, completion_name_vec, NULL);
-  matches_vec
-    = complete_on_enum (VEC_address (const_char_ptr, completion_name_vec),
-			text, word);
+  complete_on_enum (tracker,
+		    VEC_address (const_char_ptr, completion_name_vec),
+		    text, word);
 
   VEC_free (const_char_ptr, completion_name_vec);
-
-  return matches_vec;
 }
 
 /* Complete possible window names to focus on.  TEXT is the complete text
    entered so far, WORD is the word currently being completed.  */
 
-static VEC (char_ptr) *
+static void
 focus_completer (struct cmd_list_element *ignore,
-		  const char *text, const char *word)
+		 completion_tracker &tracker,
+		 const char *text, const char *word)
 {
-  return window_name_completer (1, text, word);
+  window_name_completer (tracker, 1, text, word);
 }
 
 /* Complete possible window names for winheight command.  TEXT is the
    complete text entered so far, WORD is the word currently being
    completed.  */
 
-static VEC (char_ptr) *
+static void
 winheight_completer (struct cmd_list_element *ignore,
+		     completion_tracker &tracker,
 		     const char *text, const char *word)
 {
   /* The first word is the window name.  That we can complete.  Subsequent
      words can't be completed.  */
   if (word != text)
-    return NULL;
+    return;
 
-  return window_name_completer (0, text, word);
+  window_name_completer (tracker, 0, text, word);
 }
 
 /* Function to initialize gdb commands, for tui window
    manipulation.  */
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_tui_win;
 
 void
 _initialize_tui_win (void)
@@ -1168,14 +1165,13 @@ tui_set_win_height (char *arg, int from_tty)
   tui_enable ();
   if (arg != (char *) NULL)
     {
-      char *buf = xstrdup (arg);
+      std::string copy = arg;
+      char *buf = &copy[0];
       char *buf_ptr = buf;
       char *wname = NULL;
       int new_height, i;
       struct tui_win_info *win_info;
-      struct cleanup *old_chain;
 
-      old_chain = make_cleanup (xfree, buf);
       wname = buf_ptr;
       buf_ptr = strchr (buf_ptr, ' ');
       if (buf_ptr != (char *) NULL)
@@ -1237,8 +1233,6 @@ The window name specified must be valid and visible.\n"));
 	}
       else
 	printf_filtered (WIN_HEIGHT_USAGE);
-
-      do_cleanups (old_chain);
     }
   else
     printf_filtered (WIN_HEIGHT_USAGE);
@@ -1664,12 +1658,11 @@ parse_scrolling_args (char *arg,
      window name arg.  */
   if (arg != (char *) NULL)
     {
-      char *buf, *buf_ptr;
-      struct cleanup *old_chain;
+      char *buf_ptr;
 
       /* Process the number of lines to scroll.  */
-      buf = buf_ptr = xstrdup (arg);
-      old_chain = make_cleanup (xfree, buf);
+      std::string copy = arg;
+      buf_ptr = &copy[0];
       if (isdigit (*buf_ptr))
 	{
 	  char *num_str;
@@ -1716,6 +1709,5 @@ The window name specified must be valid and visible.\n"));
 	  else if (*win_to_scroll == TUI_CMD_WIN)
 	    *win_to_scroll = (tui_source_windows ())->list[0];
 	}
-      do_cleanups (old_chain);
     }
 }

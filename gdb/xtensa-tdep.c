@@ -29,7 +29,6 @@
 #include "dis-asm.h"
 #include "inferior.h"
 #include "osabi.h"
-#include "floatformat.h"
 #include "regcache.h"
 #include "reggroups.h"
 #include "regset.h"
@@ -389,7 +388,7 @@ xtensa_register_write_masked (struct regcache *regcache,
   DEBUGTRACE ("xtensa_register_write_masked ()\n");
 
   /* Copy the masked register to host byte-order.  */
-  if (gdbarch_byte_order (get_regcache_arch (regcache)) == BFD_ENDIAN_BIG)
+  if (gdbarch_byte_order (regcache->arch ()) == BFD_ENDIAN_BIG)
     for (i = 0; i < bytesize; i++)
       {
 	mem >>= 8;
@@ -523,7 +522,7 @@ xtensa_register_read_masked (struct regcache *regcache,
   ptr = value;
   mem = *ptr;
 
-  if (gdbarch_byte_order (get_regcache_arch (regcache)) == BFD_ENDIAN_BIG)
+  if (gdbarch_byte_order (regcache->arch ()) == BFD_ENDIAN_BIG)
     for (i = 0; i < bytesize; i++)
       {
 	if ((i & 3) == 0)
@@ -740,17 +739,13 @@ static void
 xtensa_init_reggroups (void)
 {
   int i;
-  char cpname[] = "cp0";
 
   xtensa_ar_reggroup = reggroup_new ("ar", USER_REGGROUP);
   xtensa_user_reggroup = reggroup_new ("user", USER_REGGROUP);
   xtensa_vectra_reggroup = reggroup_new ("vectra", USER_REGGROUP);
 
   for (i = 0; i < XTENSA_MAX_COPROCESSOR; i++)
-    {
-      cpname[2] = '0' + i;
-      xtensa_cp[i] = reggroup_new (cpname, USER_REGGROUP);
-    }
+    xtensa_cp[i] = reggroup_new (xstrprintf ("cp%d", i), USER_REGGROUP);
 }
 
 static void
@@ -852,7 +847,7 @@ xtensa_supply_gregset (const struct regset *regset,
 		       size_t len)
 {
   const xtensa_elf_gregset_t *regs = (const xtensa_elf_gregset_t *) gregs;
-  struct gdbarch *gdbarch = get_regcache_arch (rc);
+  struct gdbarch *gdbarch = rc->arch ();
   int i;
 
   DEBUGTRACE ("xtensa_supply_gregset (..., regnum==%d, ...)\n", regnum);
@@ -1562,7 +1557,7 @@ xtensa_extract_return_value (struct type *type,
 			     struct regcache *regcache,
 			     void *dst)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   bfd_byte *valbuf = (bfd_byte *) dst;
   int len = TYPE_LENGTH (type);
   ULONGEST pc, wb;
@@ -1618,7 +1613,7 @@ xtensa_store_return_value (struct type *type,
 			   struct regcache *regcache,
 			   const void *dst)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   const bfd_byte *valbuf = (const bfd_byte *) dst;
   unsigned int areg;
   ULONGEST pc, wb;
@@ -3281,9 +3276,6 @@ xtensa_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
 {
   error (_("xtensa_dump_tdep(): not implemented"));
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_xtensa_tdep;
 
 void
 _initialize_xtensa_tdep (void)

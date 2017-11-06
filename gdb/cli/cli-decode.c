@@ -103,7 +103,7 @@ print_help_for_command (struct cmd_list_element *c, const char *prefix,
 static void
 do_cfunc (struct cmd_list_element *c, char *args, int from_tty)
 {
-  c->function.cfunc (args, from_tty); /* Ok.  */
+  c->function.cfunc (args, from_tty);
 }
 
 void
@@ -113,13 +113,29 @@ set_cmd_cfunc (struct cmd_list_element *cmd, cmd_cfunc_ftype *cfunc)
     cmd->func = NULL;
   else
     cmd->func = do_cfunc;
-  cmd->function.cfunc = cfunc; /* Ok.  */
+  cmd->function.cfunc = cfunc;
+}
+
+static void
+do_const_cfunc (struct cmd_list_element *c, char *args, int from_tty)
+{
+  c->function.const_cfunc (args, from_tty);
+}
+
+void
+set_cmd_cfunc (struct cmd_list_element *cmd, cmd_const_cfunc_ftype *cfunc)
+{
+  if (cfunc == NULL)
+    cmd->func = NULL;
+  else
+    cmd->func = do_const_cfunc;
+  cmd->function.const_cfunc = cfunc;
 }
 
 static void
 do_sfunc (struct cmd_list_element *c, char *args, int from_tty)
 {
-  c->function.sfunc (args, from_tty, c); /* Ok.  */
+  c->function.sfunc (args, from_tty, c);
 }
 
 void
@@ -129,13 +145,19 @@ set_cmd_sfunc (struct cmd_list_element *cmd, cmd_sfunc_ftype *sfunc)
     cmd->func = NULL;
   else
     cmd->func = do_sfunc;
-  cmd->function.sfunc = sfunc; /* Ok.  */
+  cmd->function.sfunc = sfunc;
 }
 
 int
 cmd_cfunc_eq (struct cmd_list_element *cmd, cmd_cfunc_ftype *cfunc)
 {
   return cmd->func == do_cfunc && cmd->function.cfunc == cfunc;
+}
+
+int
+cmd_cfunc_eq (struct cmd_list_element *cmd, cmd_const_cfunc_ftype *cfunc)
+{
+  return cmd->func == do_const_cfunc && cmd->function.const_cfunc == cfunc;
 }
 
 void
@@ -166,9 +188,9 @@ set_cmd_completer (struct cmd_list_element *cmd, completer_ftype *completer)
 
 void
 set_cmd_completer_handle_brkchars (struct cmd_list_element *cmd,
-			       completer_ftype_void *completer_handle_brkchars)
+				   completer_handle_brkchars_ftype *func)
 {
-  cmd->completer_handle_brkchars = completer_handle_brkchars;
+  cmd->completer_handle_brkchars = func;
 }
 
 /* Add element named NAME.
@@ -189,9 +211,9 @@ set_cmd_completer_handle_brkchars (struct cmd_list_element *cmd,
    Returns a pointer to the added command (not necessarily the head 
    of *LIST).  */
 
-struct cmd_list_element *
-add_cmd (const char *name, enum command_class theclass, cmd_cfunc_ftype *fun,
-	 const char *doc, struct cmd_list_element **list)
+static struct cmd_list_element *
+do_add_cmd (const char *name, enum command_class theclass,
+	    const char *doc, struct cmd_list_element **list)
 {
   struct cmd_list_element *c = XNEW (struct cmd_list_element);
   struct cmd_list_element *p, *iter;
@@ -229,7 +251,6 @@ add_cmd (const char *name, enum command_class theclass, cmd_cfunc_ftype *fun,
 
   c->name = name;
   c->theclass = theclass;
-  set_cmd_cfunc (c, fun);
   set_cmd_context (c, NULL);
   c->doc = doc;
   c->cmd_deprecated = 0;
@@ -244,7 +265,7 @@ add_cmd (const char *name, enum command_class theclass, cmd_cfunc_ftype *fun,
   c->allow_unknown = 0;
   c->prefix = NULL;
   c->abbrev_flag = 0;
-  set_cmd_completer (c, make_symbol_completion_list_fn);
+  set_cmd_completer (c, symbol_completer);
   c->completer_handle_brkchars = NULL;
   c->destroyer = NULL;
   c->type = not_set_cmd;
@@ -257,6 +278,35 @@ add_cmd (const char *name, enum command_class theclass, cmd_cfunc_ftype *fun,
   c->suppress_notification = NULL;
 
   return c;
+}
+
+struct cmd_list_element *
+add_cmd (const char *name, enum command_class theclass, cmd_cfunc_ftype *fun,
+	 const char *doc, struct cmd_list_element **list)
+{
+  cmd_list_element *result = do_add_cmd (name, theclass, doc, list);
+  set_cmd_cfunc (result, fun);
+  return result;
+}
+
+struct cmd_list_element *
+add_cmd (const char *name, enum command_class theclass,
+	 const char *doc, struct cmd_list_element **list)
+{
+  cmd_list_element *result = do_add_cmd (name, theclass, doc, list);
+  result->func = NULL;
+  result->function.cfunc = NULL; /* Ok.  */
+  return result;
+}
+
+struct cmd_list_element *
+add_cmd (const char *name, enum command_class theclass,
+	 cmd_const_cfunc_ftype *fun,
+	 const char *doc, struct cmd_list_element **list)
+{
+  cmd_list_element *result = do_add_cmd (name, theclass, doc, list);
+  set_cmd_cfunc (result, fun);
+  return result;
 }
 
 /* Deprecates a command CMD.
@@ -301,7 +351,7 @@ add_alias_cmd (const char *name, cmd_list_element *old,
       return 0;
     }
 
-  struct cmd_list_element *c = add_cmd (name, theclass, NULL, old->doc, list);
+  struct cmd_list_element *c = add_cmd (name, theclass, old->doc, list);
 
   /* If OLD->DOC can be freed, we should make another copy.  */
   if (old->doc_allocated)
@@ -346,7 +396,7 @@ add_alias_cmd (const char *name, const char *oldname,
 
 struct cmd_list_element *
 add_prefix_cmd (const char *name, enum command_class theclass,
-		cmd_cfunc_ftype *fun,
+		cmd_const_cfunc_ftype *fun,
 		const char *doc, struct cmd_list_element **prefixlist,
 		const char *prefixname, int allow_unknown,
 		struct cmd_list_element **list)
@@ -390,7 +440,7 @@ add_abbrev_prefix_cmd (const char *name, enum command_class theclass,
 
 /* This is an empty "cfunc".  */
 void
-not_just_help_class_command (char *args, int from_tty)
+not_just_help_class_command (const char *args, int from_tty)
 {
 }
 
@@ -419,7 +469,7 @@ add_set_or_show_cmd (const char *name,
 		     const char *doc,
 		     struct cmd_list_element **list)
 {
-  struct cmd_list_element *c = add_cmd (name, theclass, NULL, doc, list);
+  struct cmd_list_element *c = add_cmd (name, theclass, doc, list);
 
   gdb_assert (type == set_cmd || type == show_cmd);
   c->type = type;
@@ -657,8 +707,9 @@ add_setshow_optional_filename_cmd (const char *name, enum command_class theclass
 /* Completes on literal "unlimited".  Used by integer commands that
    support a special "unlimited" value.  */
 
-static VEC (char_ptr) *
+static void
 integer_unlimited_completer (struct cmd_list_element *ignore,
+			     completion_tracker &tracker,
 			     const char *text, const char *word)
 {
   static const char * const keywords[] =
@@ -667,7 +718,7 @@ integer_unlimited_completer (struct cmd_list_element *ignore,
       NULL,
     };
 
-  return complete_on_enum (keywords, text, word);
+  complete_on_enum (tracker, keywords, text, word);
 }
 
 /* Add element named NAME to both the set and show command LISTs (the
@@ -1771,13 +1822,13 @@ lookup_cmd_composition (const char *text,
    "foo" and we want to complete to "foobar".  If WORD is "oo", return
    "oobar"; if WORD is "baz/foo", return "baz/foobar".  */
 
-VEC (char_ptr) *
+void
 complete_on_cmdlist (struct cmd_list_element *list,
+		     completion_tracker &tracker,
 		     const char *text, const char *word,
 		     int ignore_help_classes)
 {
   struct cmd_list_element *ptr;
-  VEC (char_ptr) *matchlist = NULL;
   int textlen = strlen (text);
   int pass;
   int saw_deprecated_match = 0;
@@ -1786,8 +1837,10 @@ complete_on_cmdlist (struct cmd_list_element *list,
      commands.  If we see no matching commands in the first pass, and
      if we did happen to see a matching deprecated command, we do
      another loop to collect those.  */
-  for (pass = 0; matchlist == 0 && pass < 2; ++pass)
+  for (pass = 0; pass < 2; ++pass)
     {
+      bool got_matches = false;
+
       for (ptr = list; ptr; ptr = ptr->next)
 	if (!strncmp (ptr->name, text, textlen)
 	    && !ptr->abbrev_flag
@@ -1820,32 +1873,34 @@ complete_on_cmdlist (struct cmd_list_element *list,
 		match[text - word] = '\0';
 		strcat (match, ptr->name);
 	      }
-	    VEC_safe_push (char_ptr, matchlist, match);
+	    tracker.add_completion (gdb::unique_xmalloc_ptr<char> (match));
+	    got_matches = true;
 	  }
+
+      if (got_matches)
+	break;
+
       /* If we saw no matching deprecated commands in the first pass,
 	 just bail out.  */
       if (!saw_deprecated_match)
 	break;
     }
-
-  return matchlist;
 }
 
 /* Helper function for SYMBOL_COMPLETION_FUNCTION.  */
 
-/* Return a vector of char pointers which point to the different
-   possible completions in CMD of TEXT.
+/* Add the different possible completions in ENUMLIST of TEXT.
 
    WORD points in the same buffer as TEXT, and completions should be
    returned relative to this position.  For example, suppose TEXT is "foo"
    and we want to complete to "foobar".  If WORD is "oo", return
    "oobar"; if WORD is "baz/foo", return "baz/foobar".  */
 
-VEC (char_ptr) *
-complete_on_enum (const char *const *enumlist,
+void
+complete_on_enum (completion_tracker &tracker,
+		  const char *const *enumlist,
 		  const char *text, const char *word)
 {
-  VEC (char_ptr) *matchlist = NULL;
   int textlen = strlen (text);
   int i;
   const char *name;
@@ -1870,10 +1925,8 @@ complete_on_enum (const char *const *enumlist,
 	    match[text - word] = '\0';
 	    strcat (match, name);
 	  }
-	VEC_safe_push (char_ptr, matchlist, match);
+	tracker.add_completion (gdb::unique_xmalloc_ptr<char> (match));
       }
-
-  return matchlist;
 }
 
 
@@ -1906,5 +1959,6 @@ int
 cli_user_command_p (struct cmd_list_element *cmd)
 {
   return (cmd->theclass == class_user
-	  && (cmd->func == do_cfunc || cmd->func == do_sfunc));
+	  && (cmd->func == do_cfunc || cmd->func == do_sfunc
+	      || cmd->func == do_const_cfunc));
 }

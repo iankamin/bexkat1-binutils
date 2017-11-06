@@ -1002,6 +1002,7 @@ microblaze_elf_relocate_section (bfd *output_bfd,
       else
 	{
 	  bfd_vma relocation;
+	  bfd_boolean resolved_to_zero;
 
 	  /* This is a final link.  */
 	  sym = NULL;
@@ -1040,6 +1041,9 @@ microblaze_elf_relocate_section (bfd *output_bfd,
 	      r = bfd_reloc_outofrange;
 	      goto check_reloc;
 	    }
+
+	  resolved_to_zero = (h != NULL
+			      && UNDEFWEAK_NO_DYNAMIC_RELOC (info, h));
 
 	  switch ((int) r_type)
 	    {
@@ -1257,7 +1261,8 @@ microblaze_elf_relocate_section (bfd *output_bfd,
 		/* Need to generate relocs ? */
 		if ((bfd_link_pic (info) || indx != 0)
 		    && (h == NULL
-		    || ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+		    || (ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+			&& !resolved_to_zero)
 		    || h->root.type != bfd_link_hash_undefweak))
 		  need_relocs = TRUE;
 
@@ -1432,7 +1437,8 @@ microblaze_elf_relocate_section (bfd *output_bfd,
 
 		if ((bfd_link_pic (info)
 		     && (h == NULL
-			 || ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+			 || (ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+			     && !resolved_to_zero)
 			 || h->root.type != bfd_link_hash_undefweak)
 		     && (!howto->pc_relative
 			 || (h != NULL
@@ -2218,17 +2224,6 @@ microblaze_elf_gc_mark_hook (asection *sec,
   return _bfd_elf_gc_mark_hook (sec, info, rel, h, sym);
 }
 
-/* Update the got entry reference counts for the section being removed.  */
-
-static bfd_boolean
-microblaze_elf_gc_sweep_hook (bfd * abfd ATTRIBUTE_UNUSED,
-     			      struct bfd_link_info * info ATTRIBUTE_UNUSED,
-     			      asection * sec ATTRIBUTE_UNUSED,
-     			      const Elf_Internal_Rela * relocs ATTRIBUTE_UNUSED)
-{
-  return TRUE;
-}
-
 /* PIC support.  */
 
 #define PLT_ENTRY_SIZE 16
@@ -2312,6 +2307,9 @@ microblaze_elf_check_relocs (bfd * abfd,
       else
 	{
 	  h = sym_hashes [r_symndx - symtab_hdr->sh_info];
+	  while (h->root.type == bfd_link_hash_indirect
+		 || h->root.type == bfd_link_hash_warning)
+	    h = (struct elf_link_hash_entry *) h->root.u.i.link;
 
 	  /* PR15323, ref flags aren't set for references in the same
 	     object.  */
@@ -2353,7 +2351,6 @@ microblaze_elf_check_relocs (bfd * abfd,
         dogottls:
           sec->has_tls_reloc = 1;
 	  /* Fall through.  */
-        case R_MICROBLAZE_GOTOFF_64:
         case R_MICROBLAZE_GOT_64:
           if (htab->elf.sgot == NULL)
             {
@@ -2373,6 +2370,17 @@ microblaze_elf_check_relocs (bfd * abfd,
 		return FALSE;
 	    }
           break;
+
+	case R_MICROBLAZE_GOTOFF_64:
+	case R_MICROBLAZE_GOTOFF_32:
+	  if (htab->elf.sgot == NULL)
+	    {
+	      if (htab->elf.dynobj == NULL)
+		htab->elf.dynobj = abfd;
+	      if (!_bfd_elf_create_got_section (htab->elf.dynobj, info))
+		return FALSE;
+	    }
+	  break;
 
         case R_MICROBLAZE_64:
         case R_MICROBLAZE_64_PCREL:
@@ -2851,6 +2859,8 @@ allocate_dynrelocs (struct elf_link_hash_entry *h, void * dat)
 		pp = &p->next;
 	    }
 	}
+      else if (UNDEFWEAK_NO_DYNAMIC_RELOC (info, h))
+	eh->dyn_relocs = NULL;
     }
   else
     {
@@ -3447,7 +3457,6 @@ microblaze_elf_add_symbol_hook (bfd *abfd,
 #define bfd_elf32_bfd_reloc_name_lookup		microblaze_elf_reloc_name_lookup
 
 #define elf_backend_gc_mark_hook		microblaze_elf_gc_mark_hook
-#define elf_backend_gc_sweep_hook		microblaze_elf_gc_sweep_hook
 #define elf_backend_check_relocs                microblaze_elf_check_relocs
 #define elf_backend_copy_indirect_symbol        microblaze_elf_copy_indirect_symbol
 #define bfd_elf32_bfd_link_hash_table_create    microblaze_elf_link_hash_table_create

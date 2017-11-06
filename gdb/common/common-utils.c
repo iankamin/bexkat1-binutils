@@ -174,6 +174,61 @@ string_printf (const char* fmt, ...)
   return str;
 }
 
+/* See documentation in common-utils.h.  */
+
+std::string
+string_vprintf (const char* fmt, va_list args)
+{
+  va_list vp;
+  size_t size;
+
+  va_copy (vp, args);
+  size = vsnprintf (NULL, 0, fmt, vp);
+  va_end (vp);
+
+  std::string str (size, '\0');
+
+  /* C++11 and later guarantee std::string uses contiguous memory and
+     always includes the terminating '\0'.  */
+  vsprintf (&str[0], fmt, args);
+
+  return str;
+}
+
+
+/* See documentation in common-utils.h.  */
+
+void
+string_appendf (std::string &str, const char *fmt, ...)
+{
+  va_list vp;
+
+  va_start (vp, fmt);
+  string_vappendf (str, fmt, vp);
+  va_end (vp);
+}
+
+
+/* See documentation in common-utils.h.  */
+
+void
+string_vappendf (std::string &str, const char *fmt, va_list args)
+{
+  va_list vp;
+  int grow_size;
+
+  va_copy (vp, args);
+  grow_size = vsnprintf (NULL, 0, fmt, vp);
+  va_end (vp);
+
+  size_t curr_size = str.size ();
+  str.resize (curr_size + grow_size);
+
+  /* C++11 and later guarantee std::string uses contiguous memory and
+     always includes the terminating '\0'.  */
+  vsprintf (&str[curr_size], fmt, args);
+}
+
 char *
 savestring (const char *ptr, size_t len)
 {
@@ -298,7 +353,7 @@ skip_spaces (char *chp)
 /* A const-correct version of the above.  */
 
 const char *
-skip_spaces_const (const char *chp)
+skip_spaces (const char *chp)
 {
   if (chp == NULL)
     return NULL;
@@ -310,13 +365,21 @@ skip_spaces_const (const char *chp)
 /* See documentation in common-utils.h.  */
 
 const char *
-skip_to_space_const (const char *chp)
+skip_to_space (const char *chp)
 {
   if (chp == NULL)
     return NULL;
   while (*chp && !isspace (*chp))
     chp++;
   return chp;
+}
+
+/* See documentation in common-utils.h.  */
+
+char *
+skip_to_space (char *chp)
+{
+  return (char *) skip_to_space ((const char *) chp);
 }
 
 /* See common/common-utils.h.  */

@@ -95,32 +95,24 @@ mi_cmd_var_create (const char *command, char **argv, int argc)
   struct ui_out *uiout = current_uiout;
   CORE_ADDR frameaddr = 0;
   struct varobj *var;
-  char *name;
   char *frame;
   char *expr;
-  struct cleanup *old_cleanups;
   enum varobj_type var_type;
 
   if (argc != 3)
     error (_("-var-create: Usage: NAME FRAME EXPRESSION."));
 
-  name = xstrdup (argv[0]);
-  /* Add cleanup for name. Must be free_current_contents as name can
-     be reallocated.  */
-  old_cleanups = make_cleanup (free_current_contents, &name);
+  frame = argv[1];
+  expr = argv[2];
 
-  frame = xstrdup (argv[1]);
-  make_cleanup (xfree, frame);
-
-  expr = xstrdup (argv[2]);
-  make_cleanup (xfree, expr);
-
+  const char *name = argv[0];
+  std::string gen_name;
   if (strcmp (name, "-") == 0)
     {
-      xfree (name);
-      name = varobj_gen_name ();
+      gen_name = varobj_gen_name ();
+      name = gen_name.c_str ();
     }
-  else if (!isalpha (*name))
+  else if (!isalpha (name[0]))
     error (_("-var-create: name of object must begin with a letter"));
 
   if (strcmp (frame, "*") == 0)
@@ -135,7 +127,7 @@ mi_cmd_var_create (const char *command, char **argv, int argc)
 
   if (varobjdebug)
     fprintf_unfiltered (gdb_stdlog,
-		    "Name=\"%s\", Frame=\"%s\" (%s), Expression=\"%s\"\n",
+			"Name=\"%s\", Frame=\"%s\" (%s), Expression=\"%s\"\n",
 			name, frame, hex_string (frameaddr), expr);
 
   var = varobj_create (name, expr, frameaddr, var_type);
@@ -146,8 +138,6 @@ mi_cmd_var_create (const char *command, char **argv, int argc)
   print_varobj (var, PRINT_ALL_VALUES, 0 /* don't print expression */);
 
   uiout->field_int ("has_more", varobj_has_more (var, 0));
-
-  do_cleanups (old_cleanups);
 }
 
 void
@@ -157,16 +147,12 @@ mi_cmd_var_delete (const char *command, char **argv, int argc)
   struct varobj *var;
   int numdel;
   int children_only_p = 0;
-  struct cleanup *old_cleanups;
   struct ui_out *uiout = current_uiout;
 
   if (argc < 1 || argc > 2)
     error (_("-var-delete: Usage: [-c] EXPRESSION."));
 
-  name = xstrdup (argv[0]);
-  /* Add cleanup for name. Must be free_current_contents as name can
-     be reallocated.  */
-  old_cleanups = make_cleanup (free_current_contents, &name);
+  name = argv[0];
 
   /* If we have one single argument it cannot be '-c' or any string
      starting with '-'.  */
@@ -186,9 +172,7 @@ mi_cmd_var_delete (const char *command, char **argv, int argc)
       if (strcmp (name, "-c") != 0)
 	error (_("-var-delete: Invalid option."));
       children_only_p = 1;
-      do_cleanups (old_cleanups);
-      name = xstrdup (argv[1]);
-      old_cleanups = make_cleanup (free_current_contents, &name);
+      name = argv[1];
     }
 
   /* If we didn't error out, now NAME contains the name of the
@@ -199,8 +183,6 @@ mi_cmd_var_delete (const char *command, char **argv, int argc)
   numdel = varobj_delete (var, children_only_p);
 
   uiout->field_int ("ndeleted", numdel);
-
-  do_cleanups (old_cleanups);
 }
 
 /* Parse a string argument into a format value.  */
@@ -410,14 +392,15 @@ mi_cmd_var_list_children (const char *command, char **argv, int argc)
 
   if (from < to)
     {
-      struct cleanup *cleanup_children;
+      /* For historical reasons this might emit a list or a tuple, so
+	 we construct one or the other.  */
+      gdb::optional<ui_out_emit_tuple> tuple_emitter;
+      gdb::optional<ui_out_emit_list> list_emitter;
 
       if (mi_version (uiout) == 1)
-	cleanup_children
-	  = make_cleanup_ui_out_tuple_begin_end (uiout, "children");
+	tuple_emitter.emplace (uiout, "children");
       else
-	cleanup_children
-	  = make_cleanup_ui_out_list_begin_end (uiout, "children");
+	list_emitter.emplace (uiout, "children");
       for (ix = from;
 	   ix < to && VEC_iterate (varobj_p, children, ix, child);
 	   ++ix)
@@ -426,7 +409,6 @@ mi_cmd_var_list_children (const char *command, char **argv, int argc)
 
 	  print_varobj (child, print_values, 1 /* print expression */);
 	}
-      do_cleanups (cleanup_children);
     }
 
   uiout->field_int ("has_more", varobj_has_more (var, to));
@@ -648,7 +630,6 @@ void
 mi_cmd_var_update (const char *command, char **argv, int argc)
 {
   struct ui_out *uiout = current_uiout;
-  struct cleanup *cleanup;
   char *name;
   enum print_values print_values;
 
@@ -665,10 +646,15 @@ mi_cmd_var_update (const char *command, char **argv, int argc)
   else
     print_values = PRINT_NO_VALUES;
 
+  /* For historical reasons this might emit a list or a tuple, so we
+     construct one or the other.  */
+  gdb::optional<ui_out_emit_tuple> tuple_emitter;
+  gdb::optional<ui_out_emit_list> list_emitter;
+
   if (mi_version (uiout) <= 1)
-    cleanup = make_cleanup_ui_out_tuple_begin_end (uiout, "changelist");
+    tuple_emitter.emplace (uiout, "changelist");
   else
-    cleanup = make_cleanup_ui_out_list_begin_end (uiout, "changelist");
+    list_emitter.emplace (uiout, "changelist");
 
   /* Check if the parameter is a "*", which means that we want to
      update all variables.  */
@@ -693,8 +679,6 @@ mi_cmd_var_update (const char *command, char **argv, int argc)
 
       varobj_update_one (var, print_values, 1 /* explicit */);
     }
-
-  do_cleanups (cleanup);
 }
 
 /* Helper for mi_cmd_var_update().  */

@@ -25,7 +25,6 @@
 #include "symfile.h"
 #include "symtab.h"
 #include "objfiles.h"
-#include "gdb.h"
 #include "gdbcmd.h"
 #include "gdbcore.h"
 #include "gdbthread.h"
@@ -1191,11 +1190,11 @@ cancel_breakpoint (ptid_t ptid)
      tripped on it.  */
 
   struct regcache *regcache = get_thread_regcache (ptid);
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   CORE_ADDR pc;
 
   pc = regcache_read_pc (regcache) - gdbarch_decr_pc_after_break (gdbarch);
-  if (breakpoint_inserted_here_p (get_regcache_aspace (regcache), pc))
+  if (breakpoint_inserted_here_p (regcache->aspace (), pc))
     {
       inferior_debug (4, "cancel_breakpoint for thread 0x%lx\n",
 		      (unsigned long) ptid_get_tid (ptid));
@@ -2337,9 +2336,6 @@ darwin_supports_multi_process (struct target_ops *self)
 {
   return 1;
 }
-
-/* -Wmissing-prototypes */
-extern initialize_file_ftype _initialize_darwin_inferior;
 
 void
 _initialize_darwin_inferior (void)

@@ -2265,6 +2265,7 @@ enum bfd_architecture
 #define bfd_mach_moxie         1
   bfd_arch_ft32,       /* The ft32 processor */
 #define bfd_mach_ft32          1
+#define bfd_mach_ft32b         2
   bfd_arch_mcore,
   bfd_arch_mep,
 #define bfd_mach_mep           1
@@ -2468,8 +2469,9 @@ unsigned int bfd_arch_mach_octets_per_byte
 
 typedef enum bfd_reloc_status
 {
-  /* No errors detected.  */
-  bfd_reloc_ok,
+  /* No errors detected.  Note - the value 2 is used so that it
+     will not be mistaken for the boolean TRUE or FALSE values.  */
+  bfd_reloc_ok = 2,
 
   /* The relocation was performed, but there was an overflow.  */
   bfd_reloc_overflow,
@@ -3150,6 +3152,11 @@ to compensate for the borrow when the low bits are added.  */
   BFD_RELOC_FT32_20,
   BFD_RELOC_FT32_17,
   BFD_RELOC_FT32_18,
+  BFD_RELOC_FT32_RELAX,
+  BFD_RELOC_FT32_SC0,
+  BFD_RELOC_FT32_SC1,
+  BFD_RELOC_FT32_15,
+  BFD_RELOC_FT32_DIFF32,
 
 /* Bexkat1 ELF relocations.  */
   BFD_RELOC_BEXKAT1_15,
@@ -3805,6 +3812,7 @@ pc-relative or some form of GOT-indirect relocation.  */
   BFD_RELOC_ARC_S25W_PCREL_PLT,
   BFD_RELOC_ARC_S21H_PCREL_PLT,
   BFD_RELOC_ARC_NPS_CMEM16,
+  BFD_RELOC_ARC_JLI_SECTOFF,
 
 /* ADI Blackfin 16 bit immediate absolute reloc.  */
   BFD_RELOC_BFIN_16_IMM,
@@ -7059,7 +7067,9 @@ bfd_error_type;
 
 bfd_error_type bfd_get_error (void);
 
-void bfd_set_error (bfd_error_type error_tag, ...);
+void bfd_set_error (bfd_error_type error_tag);
+
+void bfd_set_input_error (bfd *input, bfd_error_type error_tag);
 
 const char *bfd_errmsg (bfd_error_type error_tag);
 

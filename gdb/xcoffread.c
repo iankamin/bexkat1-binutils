@@ -1833,7 +1833,6 @@ find_linenos (struct bfd *abfd, struct bfd_section *asect, void *vpinfo)
 static void
 xcoff_psymtab_to_symtab_1 (struct objfile *objfile, struct partial_symtab *pst)
 {
-  struct cleanup *old_chain;
   int i;
 
   if (!pst)
@@ -1870,11 +1869,9 @@ xcoff_psymtab_to_symtab_1 (struct objfile *objfile, struct partial_symtab *pst)
       /* Init stuff necessary for reading in symbols.  */
       stabsread_init ();
       buildsym_init ();
-      old_chain = make_cleanup (really_free_pendings, 0);
 
+      scoped_free_pendings free_pending;
       read_xcoff_symtab (objfile, pst);
-
-      do_cleanups (old_chain);
     }
 
   pst->readin = 1;
@@ -2030,15 +2027,15 @@ static unsigned int first_fun_line_offset;
 static struct partial_symtab *
 xcoff_start_psymtab (struct objfile *objfile,
 		     const char *filename, int first_symnum,
-		     struct partial_symbol **global_syms,
-		     struct partial_symbol **static_syms)
+		     std::vector<partial_symbol *> &global_psymbols,
+		     std::vector<partial_symbol *> &static_psymbols)
 {
   struct partial_symtab *result =
     start_psymtab_common (objfile,
 			  filename,
 			  /* We fill in textlow later.  */
 			  0,
-			  global_syms, static_syms);
+			  global_psymbols, static_psymbols);
 
   result->read_symtab_private =
     XOBNEW (&objfile->objfile_obstack, struct symloc);
@@ -2332,8 +2329,8 @@ scan_xcoff_symtab (minimal_symbol_reader &reader,
 			      (objfile,
 			       filestring,
 			       symnum_before,
-			       objfile->global_psymbols.next,
-			       objfile->static_psymbols.next);
+			       objfile->global_psymbols,
+			       objfile->static_psymbols);
 			  }
 		      }
 		    /* Activate the misc_func_recorded mechanism for
@@ -2515,8 +2512,8 @@ scan_xcoff_symtab (minimal_symbol_reader &reader,
 	    pst = xcoff_start_psymtab (objfile,
 				       filestring,
 				       symnum_before,
-				       objfile->global_psymbols.next,
-				       objfile->static_psymbols.next);
+				       objfile->global_psymbols,
+				       objfile->static_psymbols);
 	    last_csect_name = NULL;
 	  }
 	  break;
@@ -2950,7 +2947,6 @@ xcoff_initial_scan (struct objfile *objfile, symfile_add_flags symfile_flags)
 {
   bfd *abfd;
   int val;
-  struct cleanup *back_to;
   int num_symbols;		/* # of symbols */
   file_ptr symtab_offset;	/* symbol table and */
   file_ptr stringtab_offset;	/* string table file offsets */
@@ -3018,7 +3014,8 @@ xcoff_initial_scan (struct objfile *objfile, symfile_add_flags symfile_flags)
     perror_with_name (_("reading symbol table"));
 
   /* If we are reinitializing, or if we have never loaded syms yet, init.  */
-  if (objfile->global_psymbols.size == 0 && objfile->static_psymbols.size == 0)
+  if (objfile->global_psymbols.capacity () == 0
+      && objfile->static_psymbols.capacity () == 0)
     /* I'm not sure how how good num_symbols is; the rule of thumb in
        init_psymbol_list was developed for a.out.  On the one hand,
        num_symbols includes auxents.  On the other hand, it doesn't
@@ -3026,8 +3023,8 @@ xcoff_initial_scan (struct objfile *objfile, symfile_add_flags symfile_flags)
     init_psymbol_list (objfile, num_symbols);
 
   free_pending_blocks ();
-  back_to = make_cleanup (really_free_pendings, 0);
 
+  scoped_free_pendings free_pending;
   minimal_symbol_reader reader (objfile);
 
   /* Now that the symbol table data of the executable file are all in core,
@@ -3046,8 +3043,6 @@ xcoff_initial_scan (struct objfile *objfile, symfile_add_flags symfile_flags)
     dwarf2_build_psymtabs (objfile);
 
   dwarf2_build_frame_info (objfile);
-
-  do_cleanups (back_to);
 }
 
 static void
@@ -3183,9 +3178,6 @@ xcoff_free_info (struct objfile *objfile, void *arg)
 {
   xfree (arg);
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_xcoffread;
 
 void
 _initialize_xcoffread (void)

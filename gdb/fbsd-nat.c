@@ -18,6 +18,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include "defs.h"
+#include "byte-vector.h"
 #include "gdbcore.h"
 #include "inferior.h"
 #include "regcache.h"
@@ -30,13 +31,17 @@
 #include <sys/ptrace.h>
 #include <sys/signal.h>
 #include <sys/sysctl.h>
-#ifdef HAVE_KINFO_GETVMMAP
 #include <sys/user.h>
+#ifdef HAVE_KINFO_GETVMMAP
 #include <libutil.h>
+#else
+#include "filestuff.h"
 #endif
 
 #include "elf-bfd.h"
 #include "fbsd-nat.h"
+
+#include <list>
 
 /* Return the name of a file that can be opened to get the symbols for
    the child process identified by PID.  */
@@ -73,6 +78,14 @@ fbsd_pid_to_exec_file (struct target_ops *self, int pid)
 }
 
 #ifdef HAVE_KINFO_GETVMMAP
+/* Deleter for std::unique_ptr that invokes free.  */
+
+template <typename T>
+struct free_deleter
+{
+  void operator() (T *ptr) const { free (ptr); }
+};
+
 /* Iterate over all the memory regions in the current inferior,
    calling FUNC for each memory region.  OBFD is passed as the last
    argument to FUNC.  */
@@ -82,20 +95,17 @@ fbsd_find_memory_regions (struct target_ops *self,
 			  find_memory_region_ftype func, void *obfd)
 {
   pid_t pid = ptid_get_pid (inferior_ptid);
-  struct kinfo_vmentry *vmentl, *kve;
+  struct kinfo_vmentry *kve;
   uint64_t size;
-  struct cleanup *cleanup;
   int i, nitems;
 
-  vmentl = kinfo_getvmmap (pid, &nitems);
+  std::unique_ptr<struct kinfo_vmentry, free_deleter<struct kinfo_vmentry>>
+    vmentl (kinfo_getvmmap (pid, &nitems));
   if (vmentl == NULL)
     perror_with_name (_("Couldn't fetch VM map entries."));
-  cleanup = make_cleanup (free, vmentl);
 
-  for (i = 0; i < nitems; i++)
+  for (i = 0, kve = vmentl.get (); i < nitems; i++, kve++)
     {
-      kve = &vmentl[i];
-
       /* Skip unreadable segments and those where MAP_NOCORE has been set.  */
       if (!(kve->kve_protection & KVME_PROT_READ)
 	  || kve->kve_flags & KVME_FLAG_NOCOREDUMP)
@@ -126,7 +136,6 @@ fbsd_find_memory_regions (struct target_ops *self,
 	    kve->kve_protection & KVME_PROT_WRITE,
 	    kve->kve_protection & KVME_PROT_EXEC, 1, obfd);
     }
-  do_cleanups (cleanup);
   return 0;
 }
 #else
@@ -160,26 +169,21 @@ fbsd_find_memory_regions (struct target_ops *self,
 			  find_memory_region_ftype func, void *obfd)
 {
   pid_t pid = ptid_get_pid (inferior_ptid);
-  char *mapfilename;
-  FILE *mapfile;
   unsigned long start, end, size;
   char protection[4];
   int read, write, exec;
-  struct cleanup *cleanup;
 
-  mapfilename = xstrprintf ("/proc/%ld/map", (long) pid);
-  cleanup = make_cleanup (xfree, mapfilename);
-  mapfile = fopen (mapfilename, "r");
+  std::string mapfilename = string_printf ("/proc/%ld/map", (long) pid);
+  gdb_file_up mapfile (fopen (mapfilename.c_str (), "r"));
   if (mapfile == NULL)
-    error (_("Couldn't open %s."), mapfilename);
-  make_cleanup_fclose (mapfile);
+    error (_("Couldn't open %s."), mapfilename.c_str ());
 
   if (info_verbose)
     fprintf_filtered (gdb_stdout, 
-		      "Reading memory regions from %s\n", mapfilename);
+		      "Reading memory regions from %s\n", mapfilename.c_str ());
 
   /* Now iterate until end-of-file.  */
-  while (fbsd_read_mapping (mapfile, &start, &end, &protection[0]))
+  while (fbsd_read_mapping (mapfile.get (), &start, &end, &protection[0]))
     {
       size = end - start;
 
@@ -202,7 +206,6 @@ fbsd_find_memory_regions (struct target_ops *self,
       func (start, size, read, write, exec, 1, obfd);
     }
 
-  do_cleanups (cleanup);
   return 0;
 }
 #endif
@@ -276,7 +279,7 @@ fbsd_siginfo_size ()
   struct gdbarch *gdbarch = get_frame_arch (get_current_frame ());
 
   /* Is the inferior 32-bit?  If so, use the 32-bit siginfo size.  */
-  if (gdbarch_bfd_arch_info (gdbarch)->bits_per_word == 32)
+  if (gdbarch_long_bit (gdbarch) == 32)
     return sizeof (struct siginfo32);
 #endif
   return sizeof (siginfo_t);
@@ -293,7 +296,7 @@ fbsd_convert_siginfo (siginfo_t *si)
   struct gdbarch *gdbarch = get_frame_arch (get_current_frame ());
 
   /* Is the inferior 32-bit?  If not, nothing to do.  */
-  if (gdbarch_bfd_arch_info (gdbarch)->bits_per_word != 32)
+  if (gdbarch_long_bit (gdbarch) != 32)
     return;
 
   struct siginfo32 si32;
@@ -311,7 +314,7 @@ fbsd_convert_siginfo (siginfo_t *si)
      32-bits of the pointer value.  */
 #if _BYTE_ORDER == _BIG_ENDIAN
   if (si->si_value.sival_int == 0)
-    si32->si_value.sival_ptr = (uintptr_t) si->si_value.sival_ptr;
+    si32.si_value.sival_ptr = (uintptr_t) si->si_value.sival_ptr;
   else
     si32.si_value.sival_int = si->si_value.sival_int;
 #else
@@ -392,8 +395,8 @@ fbsd_xfer_partial (struct target_ops *ops, enum target_object object,
 #endif
     case TARGET_OBJECT_AUXV:
       {
-	struct cleanup *cleanup = make_cleanup (null_cleanup, NULL);
-	unsigned char *buf;
+	gdb::byte_vector buf_storage;
+	gdb_byte *buf;
 	size_t buflen;
 	int mib[4];
 
@@ -411,8 +414,8 @@ fbsd_xfer_partial (struct target_ops *ops, enum target_object object,
 	else
 	  {
 	    buflen = offset + len;
-	    buf = XCNEWVEC (unsigned char, buflen);
-	    cleanup = make_cleanup (xfree, buf);
+	    buf_storage.resize (buflen);
+	    buf = buf_storage.data ();
 	  }
 	if (sysctl (mib, 4, buf, &buflen, NULL, 0) == 0)
 	  {
@@ -426,11 +429,9 @@ fbsd_xfer_partial (struct target_ops *ops, enum target_object object,
 		else
 		  buflen = 0;
 	      }
-	    do_cleanups (cleanup);
 	    *xfered_len = buflen;
 	    return (buflen == 0) ? TARGET_XFER_EOF : TARGET_XFER_OK;
 	  }
-	do_cleanups (cleanup);
 	return TARGET_XFER_E_IO;
       }
     default:
@@ -624,8 +625,6 @@ fbsd_enable_proc_events (pid_t pid)
 static void
 fbsd_add_threads (pid_t pid)
 {
-  struct cleanup *cleanup;
-  lwpid_t *lwps;
   int i, nlwps;
 
   gdb_assert (!in_thread_list (pid_to_ptid (pid)));
@@ -633,10 +632,9 @@ fbsd_add_threads (pid_t pid)
   if (nlwps == -1)
     perror_with_name (("ptrace"));
 
-  lwps = XCNEWVEC (lwpid_t, nlwps);
-  cleanup = make_cleanup (xfree, lwps);
+  gdb::unique_xmalloc_ptr<lwpid_t[]> lwps (XCNEWVEC (lwpid_t, nlwps));
 
-  nlwps = ptrace (PT_GETLWPLIST, pid, (caddr_t) lwps, nlwps);
+  nlwps = ptrace (PT_GETLWPLIST, pid, (caddr_t) lwps.get (), nlwps);
   if (nlwps == -1)
     perror_with_name (("ptrace"));
 
@@ -663,7 +661,6 @@ fbsd_add_threads (pid_t pid)
 	  add_thread (ptid);
 	}
     }
-  do_cleanups (cleanup);
 }
 
 /* Implement the "to_update_thread_list" target_ops method.  */
@@ -716,13 +713,7 @@ fbsd_update_thread_list (struct target_ops *ops)
   sake.  FreeBSD versions newer than 9.1 contain both fixes.
 */
 
-struct fbsd_fork_info
-{
-  struct fbsd_fork_info *next;
-  ptid_t ptid;
-};
-
-static struct fbsd_fork_info *fbsd_pending_children;
+static std::list<ptid_t> fbsd_pending_children;
 
 /* Record a new child process event that is reported before the
    corresponding fork event in the parent.  */
@@ -730,11 +721,7 @@ static struct fbsd_fork_info *fbsd_pending_children;
 static void
 fbsd_remember_child (ptid_t pid)
 {
-  struct fbsd_fork_info *info = XCNEW (struct fbsd_fork_info);
-
-  info->ptid = pid;
-  info->next = fbsd_pending_children;
-  fbsd_pending_children = info;
+  fbsd_pending_children.push_front (pid);
 }
 
 /* Check for a previously-recorded new child process event for PID.
@@ -743,39 +730,26 @@ fbsd_remember_child (ptid_t pid)
 static ptid_t
 fbsd_is_child_pending (pid_t pid)
 {
-  struct fbsd_fork_info *info, *prev;
-  ptid_t ptid;
-
-  prev = NULL;
-  for (info = fbsd_pending_children; info; prev = info, info = info->next)
-    {
-      if (ptid_get_pid (info->ptid) == pid)
-	{
-	  if (prev == NULL)
-	    fbsd_pending_children = info->next;
-	  else
-	    prev->next = info->next;
-	  ptid = info->ptid;
-	  xfree (info);
-	  return ptid;
-	}
-    }
+  for (auto it = fbsd_pending_children.begin ();
+       it != fbsd_pending_children.end (); it++)
+    if (it->pid () == pid)
+      {
+	ptid_t ptid = *it;
+	fbsd_pending_children.erase (it);
+	return ptid;
+      }
   return null_ptid;
 }
 
 #ifndef PTRACE_VFORK
-static struct fbsd_fork_info *fbsd_pending_vfork_done;
+static std::forward_list<ptid_t> fbsd_pending_vfork_done;
 
 /* Record a pending vfork done event.  */
 
 static void
 fbsd_add_vfork_done (ptid_t pid)
 {
-  struct fbsd_fork_info *info = XCNEW (struct fbsd_fork_info);
-
-  info->ptid = pid;
-  info->next = fbsd_pending_vfork_done;
-  fbsd_pending_vfork_done = info;
+  fbsd_pending_vfork_done.push_front (pid);
 }
 
 /* Check for a pending vfork done event for a specific PID.  */
@@ -783,13 +757,10 @@ fbsd_add_vfork_done (ptid_t pid)
 static int
 fbsd_is_vfork_done_pending (pid_t pid)
 {
-  struct fbsd_fork_info *info;
-
-  for (info = fbsd_pending_vfork_done; info != NULL; info = info->next)
-    {
-      if (ptid_get_pid (info->ptid) == pid)
-	return 1;
-    }
+  for (auto it = fbsd_pending_vfork_done.begin ();
+       it != fbsd_pending_vfork_done.end (); it++)
+    if (it->pid () == pid)
+      return 1;
   return 0;
 }
 
@@ -799,15 +770,10 @@ fbsd_is_vfork_done_pending (pid_t pid)
 static ptid_t
 fbsd_next_vfork_done (void)
 {
-  struct fbsd_fork_info *info;
-  ptid_t ptid;
-
-  if (fbsd_pending_vfork_done != NULL)
+  if (!fbsd_pending_vfork_done.empty ())
     {
-      info = fbsd_pending_vfork_done;
-      fbsd_pending_vfork_done = info->next;
-      ptid = info->ptid;
-      xfree (info);
+      ptid_t ptid = fbsd_pending_vfork_done.front ();
+      fbsd_pending_vfork_done.pop_front ();
       return ptid;
     }
   return null_ptid;
@@ -1249,9 +1215,6 @@ fbsd_nat_add_target (struct target_ops *t)
 #endif
   add_target (t);
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_fbsd_nat;
 
 void
 _initialize_fbsd_nat (void)

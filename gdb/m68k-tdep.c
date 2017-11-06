@@ -32,6 +32,7 @@
 #include "osabi.h"
 #include "dis-asm.h"
 #include "target-descriptions.h"
+#include "floatformat.h"
 
 #include "m68k-tdep.h"
 
@@ -72,7 +73,7 @@ m68k_ps_type (struct gdbarch *gdbarch)
     {
       struct type *type;
 
-      type = arch_flags_type (gdbarch, "builtin_type_m68k_ps", 4);
+      type = arch_flags_type (gdbarch, "builtin_type_m68k_ps", 32);
       append_flags_type_flag (type, 0, "C");
       append_flags_type_flag (type, 1, "V");
       append_flags_type_flag (type, 2, "Z");
@@ -303,7 +304,7 @@ m68k_svr4_extract_return_value (struct type *type, struct regcache *regcache,
 				gdb_byte *valbuf)
 {
   gdb_byte buf[M68K_MAX_REGISTER_SIZE];
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   if (tdep->float_return && TYPE_CODE (type) == TYPE_CODE_FLT)
@@ -343,7 +344,7 @@ static void
 m68k_svr4_store_return_value (struct type *type, struct regcache *regcache,
 			      const gdb_byte *valbuf)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
 
   if (tdep->float_return && TYPE_CODE (type) == TYPE_CODE_FLT)
@@ -1278,8 +1279,6 @@ m68k_dump_tdep (struct gdbarch *gdbarch, struct ui_file *file)
   if (tdep == NULL)
     return;
 }
-
-extern initialize_file_ftype _initialize_m68k_tdep; /* -Wmissing-prototypes */
 
 void
 _initialize_m68k_tdep (void)

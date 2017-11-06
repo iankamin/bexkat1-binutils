@@ -66,11 +66,8 @@
 #define HLE_PREFIX	REP_PREFIX
 #define BND_PREFIX	REP_PREFIX
 #define LOCK_PREFIX	5
-/* Only one of NOTRACK_PREFIX and SEG_PREFIX can be used at the same
-   time.  */
-#define NOTRACK_PREFIX	6
-#define REX_PREFIX	7       /* must come last.  */
-#define MAX_PREFIXES	8	/* max prefixes per opcode */
+#define REX_PREFIX	6       /* must come last.  */
+#define MAX_PREFIXES	7	/* max prefixes per opcode */
 
 /* we define the syntax here (modulo base,index,scale syntax) */
 #define REGISTER_PREFIX '%'
@@ -985,6 +982,12 @@ static const arch_entry cpu_arch[] =
     CPU_AVX512_4VNNIW_FLAGS, 0 },
   { STRING_COMMA_LEN (".avx512_vpopcntdq"), PROCESSOR_UNKNOWN,
     CPU_AVX512_VPOPCNTDQ_FLAGS, 0 },
+  { STRING_COMMA_LEN (".avx512_vbmi2"), PROCESSOR_UNKNOWN,
+    CPU_AVX512_VBMI2_FLAGS, 0 },
+  { STRING_COMMA_LEN (".avx512_vnni"), PROCESSOR_UNKNOWN,
+    CPU_AVX512_VNNI_FLAGS, 0 },
+  { STRING_COMMA_LEN (".avx512_bitalg"), PROCESSOR_UNKNOWN,
+    CPU_AVX512_BITALG_FLAGS, 0 },
   { STRING_COMMA_LEN (".clzero"), PROCESSOR_UNKNOWN,
     CPU_CLZERO_FLAGS, 0 },
   { STRING_COMMA_LEN (".mwaitx"), PROCESSOR_UNKNOWN,
@@ -997,6 +1000,12 @@ static const arch_entry cpu_arch[] =
     CPU_PTWRITE_FLAGS, 0 },
   { STRING_COMMA_LEN (".cet"), PROCESSOR_UNKNOWN,
     CPU_CET_FLAGS, 0 },
+  { STRING_COMMA_LEN (".gfni"), PROCESSOR_UNKNOWN,
+    CPU_GFNI_FLAGS, 0 },
+  { STRING_COMMA_LEN (".vaes"), PROCESSOR_UNKNOWN,
+    CPU_VAES_FLAGS, 0 },
+  { STRING_COMMA_LEN (".vpclmulqdq"), PROCESSOR_UNKNOWN,
+    CPU_VPCLMULQDQ_FLAGS, 0 },
 };
 
 static const noarch_entry cpu_noarch[] =
@@ -1027,6 +1036,9 @@ static const noarch_entry cpu_noarch[] =
   { STRING_COMMA_LEN ("noavx512_4fmaps"), CPU_ANY_AVX512_4FMAPS_FLAGS },
   { STRING_COMMA_LEN ("noavx512_4vnniw"), CPU_ANY_AVX512_4VNNIW_FLAGS },
   { STRING_COMMA_LEN ("noavx512_vpopcntdq"), CPU_ANY_AVX512_VPOPCNTDQ_FLAGS },
+  { STRING_COMMA_LEN ("noavx512_vbmi2"), CPU_ANY_AVX512_VBMI2_FLAGS },
+  { STRING_COMMA_LEN ("noavx512_vnni"), CPU_ANY_AVX512_VNNI_FLAGS },
+  { STRING_COMMA_LEN ("noavx512_bitalg"), CPU_ANY_AVX512_BITALG_FLAGS },
 };
 
 #ifdef I386COFF
@@ -1094,7 +1106,9 @@ const pseudo_typeS md_pseudo_table[] =
   {"code16gcc", set_16bit_gcc_code_flag, CODE_16BIT},
   {"code16", set_code_flag, CODE_16BIT},
   {"code32", set_code_flag, CODE_32BIT},
+#ifdef BFD64
   {"code64", set_code_flag, CODE_64BIT},
+#endif
   {"intel_syntax", set_intel_syntax, 1},
   {"att_syntax", set_intel_syntax, 0},
   {"intel_mnemonic", set_intel_mnemonic, 1},
@@ -1459,6 +1473,10 @@ cpu_flags_all_zero (const union i386_cpu_flags *x)
 {
   switch (ARRAY_SIZE(x->array))
     {
+    case 4:
+      if (x->array[3])
+	return 0;
+      /* Fall through.  */
     case 3:
       if (x->array[2])
 	return 0;
@@ -1480,6 +1498,10 @@ cpu_flags_equal (const union i386_cpu_flags *x,
 {
   switch (ARRAY_SIZE(x->array))
     {
+    case 4:
+      if (x->array[3] != y->array[3])
+	return 0;
+      /* Fall through.  */
     case 3:
       if (x->array[2] != y->array[2])
 	return 0;
@@ -1508,6 +1530,9 @@ cpu_flags_and (i386_cpu_flags x, i386_cpu_flags y)
 {
   switch (ARRAY_SIZE (x.array))
     {
+    case 4:
+      x.array [3] &= y.array [3];
+      /* Fall through.  */
     case 3:
       x.array [2] &= y.array [2];
       /* Fall through.  */
@@ -1528,6 +1553,9 @@ cpu_flags_or (i386_cpu_flags x, i386_cpu_flags y)
 {
   switch (ARRAY_SIZE (x.array))
     {
+    case 4:
+      x.array [3] |= y.array [3];
+      /* Fall through.  */
     case 3:
       x.array [2] |= y.array [2];
       /* Fall through.  */
@@ -1548,6 +1576,9 @@ cpu_flags_and_not (i386_cpu_flags x, i386_cpu_flags y)
 {
   switch (ARRAY_SIZE (x.array))
     {
+    case 4:
+      x.array [3] &= ~y.array [3];
+      /* Fall through.  */
     case 3:
       x.array [2] &= ~y.array [2];
       /* Fall through.  */
@@ -3978,42 +4009,24 @@ parse_insn (char *line, char *mnemonic)
 	  else
 	    {
 	      /* Add prefix, checking for repeated prefixes.  */
-	      enum PREFIX_GROUP p
-		= add_prefix (current_templates->start->base_opcode);
-	      if (p == PREFIX_DS
-		  && current_templates->start->cpu_flags.bitfield.cpucet)
+	      switch (add_prefix (current_templates->start->base_opcode))
 		{
-		  i.notrack_prefix = current_templates->start->name;
-		  /* Move NOTRACK_PREFIX_OPCODE to NOTRACK_PREFIX slot so
-		     that it is placed before others.  */
-		  i.prefix[SEG_PREFIX] = 0;
-		  i.prefix[NOTRACK_PREFIX] = NOTRACK_PREFIX_OPCODE;
-		}
-	      else
-		{
-		  switch (p)
-		    {
-		    case PREFIX_EXIST:
-		      return NULL;
-		    case PREFIX_REP:
-		      if (current_templates->start->cpu_flags.bitfield.cpuhle)
-			i.hle_prefix = current_templates->start->name;
-		      else if (current_templates->start->cpu_flags.bitfield.cpumpx)
-			i.bnd_prefix = current_templates->start->name;
-		      else
-			i.rep_prefix = current_templates->start->name;
-		      break;
-		    default:
-		      break;
-		    }
-
-		  if (i.notrack_prefix != NULL)
-		    {
-		      /* There must be no other prefixes after NOTRACK
-			 prefix.  */
-		      as_bad (_("expecting no other prefixes after `notrack'"));
-		      return NULL;
-		    }
+		case PREFIX_EXIST:
+		  return NULL;
+		case PREFIX_DS:
+		  if (current_templates->start->cpu_flags.bitfield.cpucet)
+		    i.notrack_prefix = current_templates->start->name;
+		  break;
+		case PREFIX_REP:
+		  if (current_templates->start->cpu_flags.bitfield.cpuhle)
+		    i.hle_prefix = current_templates->start->name;
+		  else if (current_templates->start->cpu_flags.bitfield.cpumpx)
+		    i.bnd_prefix = current_templates->start->name;
+		  else
+		    i.rep_prefix = current_templates->start->name;
+		  break;
+		default:
+		  break;
 		}
 	    }
 	  /* Skip past PREFIX_SEPARATOR and reset token_start.  */
@@ -4645,7 +4658,8 @@ check_VecOperands (const insn_template *t)
 	}
       else if (i.reg_operands == 1 && i.mask)
 	{
-	  if ((i.types[1].bitfield.regymm
+	  if ((i.types[1].bitfield.regxmm
+	       || i.types[1].bitfield.regymm
 	       || i.types[1].bitfield.regzmm)
 	      && (register_number (i.op[1].regs)
 		  == register_number (i.index_reg)))

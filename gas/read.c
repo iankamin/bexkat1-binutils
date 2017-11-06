@@ -2202,7 +2202,7 @@ s_fill (int ignore ATTRIBUTE_UNUSED)
   md_cons_align (1);
 #endif
 
-  get_known_segmented_expression (&rep_exp);
+  expression (&rep_exp);
   if (*input_line_pointer == ',')
     {
       input_line_pointer++;
@@ -3106,9 +3106,9 @@ s_bad_end (int endr)
 void
 s_rept (int ignore ATTRIBUTE_UNUSED)
 {
-  int count;
+  size_t count;
 
-  count = get_absolute_expression ();
+  count = (size_t) get_absolute_expression ();
 
   do_repeat (count, "REPT", "ENDR");
 }
@@ -3117,10 +3117,16 @@ s_rept (int ignore ATTRIBUTE_UNUSED)
    different directives to be used as the start/end keys.  */
 
 void
-do_repeat (int count, const char *start, const char *end)
+do_repeat (size_t count, const char *start, const char *end)
 {
   sb one;
   sb many;
+
+  if (((ssize_t) count) < 0)
+    {
+      as_bad (_("negative count for %s - ignored"), start);
+      count = 0;
+    }
 
   sb_new (&one);
   if (!buffer_and_nest (start, end, &one, get_non_macro_line_sb))
@@ -3144,13 +3150,19 @@ do_repeat (int count, const char *start, const char *end)
    block is replaced by the iteration count.  */
 
 void
-do_repeat_with_expander (int count,
+do_repeat_with_expander (size_t count,
 			 const char * start,
 			 const char * end,
 			 const char * expander)
 {
   sb one;
   sb many;
+
+  if (((ssize_t) count) < 0)
+    {
+      as_bad (_("negative count for %s - ignored"), start);
+      count = 0;
+    }
 
   sb_new (&one);
   if (!buffer_and_nest (start, end, &one, get_non_macro_line_sb))
@@ -3172,7 +3184,7 @@ do_repeat_with_expander (int count,
 	  sb_build (& processed, one.len);
 	  sb_add_sb (& processed, & one);
 	  sub = strstr (processed.ptr, expander);
-	  len = sprintf (sub, "%d", count);
+	  len = sprintf (sub, "%lu", (unsigned long) count);
 	  gas_assert (len < 8);
 	  strcpy (sub + len, sub + 8);
 	  processed.len -= (8 - len);
@@ -3870,7 +3882,7 @@ pseudo_set (symbolS *symbolP)
 	  symbolS *s = exp.X_add_symbol;
 
 	  if (S_IS_COMMON (s))
-	    as_bad (_("`%s' can't be equated to common symbol '%s'"),
+	    as_bad (_("`%s' can't be equated to common symbol `%s'"),
 		    S_GET_NAME (symbolP), S_GET_NAME (s));
 
 	  S_SET_SEGMENT (symbolP, seg);
@@ -5384,7 +5396,7 @@ s_leb128 (int sign)
 
   do
     {
-      expression (&exp);
+      deferred_expression (&exp);
       emit_leb128_expr (&exp, sign);
     }
   while (*input_line_pointer++ == ',');

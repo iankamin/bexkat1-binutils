@@ -1,3 +1,473 @@
+2017-11-03  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* arc-dis.c (print_hex): New variable.
+	(parse_option): Check for hex option.
+	(print_insn_arc): Use hexadecimal representation for short
+	immediate values when requested.
+	(print_arc_disassembler_options): Add hex option to the list.
+
+2017-11-03  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* arc-tbl.h (abss, abssh, adc, adcs, adds, aslacc, asls, aslsacc)
+	(asrs, asrsr, cbflyhf0r, cbflyhf1r, cmacchfr, cmacchnfr, cmachfr)
+	(cmachnfr, cmpychfr, cmpychnfr, cmpyhfmr, cmpyhfr, cmpyhnfr, divf)
+	(dmachbl, dmachbm, dmachf, dmachfr, dmacwhf, dmpyhbl, dmpyhbm)
+	(dmpyhf, dmpyhfr, dmpyhwf, dmpywhf, dsync, flagacc, getacc, macdf)
+	(macf, macfr, macwhfl, macwhflr, macwhfm, macwhfmr, macwhkl)
+	(macwhkul, macwhl, macwhul, mpydf, mpyf, mpyfr, mpywhfl, mpywhflr)
+	(mpywhfm, mpywhfmr, mpywhkl, mpywhkul, mpywhl, mpywhul, msubdf)
+	(msubf, msubfr, msubwhfl, msubwhflr, msubwhfm, msubwhfmr, mul64)
+	(negs, negsh, normacc, qmachf, qmpyh, qmpyhf, rndh, satf, sath)
+	(sbcs, setacc, sflag, sqrt, sqrtf, subs, swi_s, vabs2h, vabss2h)
+	(vadd4b, vadds2, vadds2h, vadds4h, vaddsubs, vaddsubs2h)
+	(vaddsubs4h, valgn2h, vasl2h, vasls2h, vasr2h, vasrs2h, vasrsr2h)
+	(vext2bhl, vext2bhlf, vext2bhm, vext2bhmf, vlsr2h, vmac2hf)
+	(vmac2hfr, vmac2hnfr, vmax2h, vmin2h, vmpy2h, vmpy2hf, vmpy2hfr)
+	(vmpy2hwf, vmsub2hf, vmsub2hfr, vmsub2hnfr, vneg2h, vnegs2h)
+	(vnorm2h, vpack2hbl, vpack2hblf, vpack2hbm, vpack2hbmf, vpack2hl)
+	(vpack2hm, vperm, vrep2hl, vrep2hm, vsext2bhl, vsext2bhm, vsub4b)
+	(vsubadds, vsubadds2h, vsubadds4h, vsubs2, vsubs2h, vsubs4h):
+	Changed opcodes.
+	(prealloc, prefetch*): Place them before ld instruction.
+	* arc-opc.c (skip_this_opcode): Add ARITH class.
+
+2017-10-25  Alan Modra  <amodra@gmail.com>
+
+	PR 22348
+	* cr16-dis.c (cr16_cinvs, instruction, cr16_currInsn): Make static.
+	(cr16_words, cr16_allWords, processing_argument_number): Likewise.
+	(imm4flag, size_changed): Likewise.
+	* crx-dis.c (crx_cinvs, NUMCINVS, instruction, currInsn): Likewise.
+	(words, allWords, processing_argument_number): Likewise.
+	(cst4flag, size_changed): Likewise.
+	* crx-opc.c (crx_cst4_map): Rename from cst4_map.
+	(crx_cst4_maps): Rename from cst4_maps.
+	(crx_no_op_insn): Rename from no_op_insn.
+
+2017-10-24  Andrew Waterman  <andrew@sifive.com>
+
+	* riscv-opc.c (match_c_addi16sp) : New function.
+	(match_c_addi4spn): New function.
+	(match_c_lui): Don't allow 0-immediate encodings.
+	(riscv_opcodes) <addi>: Use the above functions.
+	<add>: Likewise.
+	<c.addi4spn>: Likewise.
+	<c.addi16sp>: Likewise.
+
+2017-10-23  Igor Tsimbalist  <igor.v.tsimbalist@intel.com>
+
+	* i386-init.h: Regenerate
+	* i386-tbl.h: Likewise
+
+2017-10-23  Igor Tsimbalist  <igor.v.tsimbalist@intel.com>
+
+	* i386-dis.c (enum): Add PREFIX_EVEX_0F3854, PREFIX_EVEX_0F388F.
+	(enum): Add EVEX_W_0F3854_P_2.
+	* i386-dis-evex.h (evex_table): Updated.
+	* i386-gen.c (cpu_flag_init): Add CPU_AVX512_BITALG,
+	CPU_ANY_AVX512_BITALG_FLAGS. Update CPU_ANY_AVX512F_FLAGS.
+	(cpu_flags): Add CpuAVX512_BITALG.
+	* i386-opc.h (enum): Add CpuAVX512_BITALG.
+	(i386_cpu_flags): Add cpuavx512_bitalg..
+	* i386-opc.tbl: Add Intel AVX512_BITALG instructions.
+	* i386-init.h: Regenerate.
+	* i386-tbl.h: Likewise.
+
+2017-10-23  Igor Tsimbalist  <igor.v.tsimbalist@intel.com>
+
+	* i386-dis.c (enum): Add PREFIX_EVEX_0F3850, PREFIX_EVEX_0F3851.
+	* i386-dis-evex.h (evex_table): Updated.
+	* i386-gen.c (cpu_flag_init): Add CPU_AVX512_VNNI,
+	CPU_ANY_AVX512_VNNI_FLAGS. Update CPU_ANY_AVX512F_FLAGS.
+	(cpu_flags): Add CpuAVX512_VNNI.
+	* i386-opc.h (enum): Add CpuAVX512_VNNI.
+	(i386_cpu_flags): Add cpuavx512_vnni.
+	* i386-opc.tbl Add Intel AVX512_VNNI instructions.
+	* i386-init.h: Regenerate.
+	* i386-tbl.h: Likewise.
+
+2017-10-23  Igor Tsimbalist  <igor.v.tsimbalist@intel.com>
+
+	* i386-dis.c (enum): Add PREFIX_EVEX_0F3A44.
+	(enum): Remove VEX_LEN_0F3A44_P_2.
+	(vex_len_table): Ditto.
+	(enum): Remove VEX_W_0F3A44_P_2.
+	(vew_w_table): Ditto.
+	(prefix_table): Adjust instructions (see prefixes above).
+	* i386-dis-evex.h (evex_table):
+	Add new instructions (see prefixes above).
+	* i386-gen.c (cpu_flag_init): Add VPCLMULQDQ.
+	(bitfield_cpu_flags): Ditto.
+	* i386-opc.h (enum): Ditto.
+	(i386_cpu_flags): Ditto.
+	(CpuUnused): Comment out to avoid zero-width field problem.
+	* i386-opc.tbl (vpclmulqdq): New instruction.
+	* i386-init.h: Regenerate.
+	* i386-tbl.h: Ditto.
+
+2017-10-23  Igor Tsimbalist  <igor.v.tsimbalist@intel.com>
+
+	* i386-dis.c (enum): Add PREFIX_EVEX_0F38DC, PREFIX_EVEX_0F38DD,
+	PREFIX_EVEX_0F38DE, PREFIX_EVEX_0F38DF.
+	(enum): Remove VEX_LEN_0F38DC_P_2, VEX_LEN_0F38DD_P_2,
+	VEX_LEN_0F38DE_P_2, VEX_LEN_0F38DF_P_2.
+	(vex_len_table): Ditto.
+	(enum): Remove VEX_W_0F38DC_P_2, VEX_W_0F38DD_P_2,
+	VEX_W_0F38DE_P_2, VEX_W_0F38DF_P_2.
+	(vew_w_table): Ditto.
+	(prefix_table): Adjust instructions (see prefixes above).
+	* i386-dis-evex.h (evex_table):
+	Add new instructions (see prefixes above).
+	* i386-gen.c (cpu_flag_init): Add VAES.
+	(bitfield_cpu_flags): Ditto.
+	* i386-opc.h (enum): Ditto.
+	(i386_cpu_flags): Ditto.
+	* i386-opc.tbl (vaes{enc,dec}{last,}): New instructions.
+	* i386-init.h: Regenerate.
+	* i386-tbl.h: Ditto.
+
+2017-10-23  Igor Tsimbalist  <igor.v.tsimbalist@intel.com>
+
+	* i386-dis.c (enum): Add PREFIX_0F38CF, PREFIX_0F3ACE, PREFIX_0F3ACF,
+	PREFIX_VEX_0F38CF, PREFIX_VEX_0F3ACE, PREFIX_VEX_0F3ACF,
+	PREFIX_EVEX_0F38CF, PREFIX_EVEX_0F3ACE, PREFIX_EVEX_0F3ACF.
+	(enum): Add VEX_W_0F38CF_P_2, VEX_W_0F3ACE_P_2, VEX_W_0F3ACF_P_2,
+	EVEX_W_0F3ACE_P_2, EVEX_W_0F3ACF_P_2.
+	(prefix_table): Updated (see prefixes above).
+	(three_byte_table): Likewise.
+	(vex_w_table): Likewise.
+	* i386-dis-evex.h: Likewise.
+	* i386-gen.c (cpu_flag_init): Add CPU_GFNI_FLAGS, CpuGFNI.
+	(cpu_flags): Add CpuGFNI.
+	* i386-opc.h (enum): Add CpuGFNI.
+	(i386_cpu_flags): Add cpugfni.
+	* i386-opc.tbl: Add Intel GFNI instructions.
+	* i386-init.h: Regenerate.
+	* i386-tbl.h: Likewise.
+
+2017-10-23  Igor Tsimbalist  <igor.v.tsimbalist@intel.com>
+
+	* i386-dis.c (enum): Add b_scalar_mode, w_scalar_mode.
+	Define EXbScalar and EXwScalar for OP_EX.
+	(enum): Add PREFIX_EVEX_0F3862, PREFIX_EVEX_0F3863,
+	PREFIX_EVEX_0F3870, PREFIX_EVEX_0F3871, PREFIX_EVEX_0F3872,
+	PREFIX_EVEX_0F3873, PREFIX_EVEX_0F3A70, PREFIX_EVEX_0F3A71,
+	PREFIX_EVEX_0F3A72, PREFIX_EVEX_0F3A73.
+	(enum): Add EVEX_W_0F3862_P_2, EVEX_W_0F3863_P_2,
+	EVEX_W_0F3870_P_2, EVEX_W_0F3871_P_2, EVEX_W_0F3872_P_2,
+	EVEX_W_0F3873_P_2, EVEX_W_0F3A70_P_2, EVEX_W_0F3A71_P_2,
+	EVEX_W_0F3A72_P_2, EVEX_W_0F3A73_P_2.
+	(intel_operand_size): Handle b_scalar_mode and w_scalar_mode.
+	(OP_E_memory): Likewise.
+	* i386-dis-evex.h: Updated.
+	* i386-gen.c (cpu_flag_init): Add CPU_AVX512_VBMI2,
+	CPU_ANY_AVX512_VBMI2_FLAGS. Update CPU_ANY_AVX512F_FLAGS.
+	(cpu_flags): Add CpuAVX512_VBMI2.
+	* i386-opc.h (enum): Add CpuAVX512_VBMI2.
+	(i386_cpu_flags): Add cpuavx512_vbmi2.
+	* i386-opc.tbl: Add Intel AVX512_VBMI2 instructions.
+	* i386-init.h: Regenerate.
+	* i386-tbl.h: Likewise.
+
+2017-10-18  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* visium-dis.c (disassem_class1) <case 0>: Print the operands.
+
+2017-10-12  James Bowman  <james.bowman@ftdichip.com>
+
+	* ft32-dis.c (print_insn_ft32): Replace FT32_FLD_K8 with K15.
+	* ft32-opc.c (ft32_opc_info): Replace FT32_FLD_K8 with
+	K15. Add jmpix pattern.
+
+2017-10-09  Andreas Krebbel  <krebbel@linux.vnet.ibm.com>
+
+	* s390-opc.txt (prno, tpei, irbm): New instructions added.
+
+2017-10-09  Heiko Carstens  <heiko.carstens@de.ibm.com>
+
+	* s390-opc.c (INSTR_SI_RD): New macro.
+	(INSTR_S_RD): Adjust example instruction.
+	* s390-opc.txt (lpsw, ssm, ts): Change S_RD instruction format to
+	SI_RD.
+
+2017-10-01  Alexander Fedotov  <alfedotov@gmail.com>
+
+	* ppc-opc.c (vle_opcodes): Add e_lmvsprw, e_lmvgprw,
+	e_lmvsrrw, e_lmvcsrrw and e_lmvcsrrw as official mnemonics for
+	VLE multimple load/store instructions. Old e_ldm* variants are
+	kept as aliases.
+	Add missing e_lmvmcsrrw and e_stmvmcsrrw.
+
+2017-09-27  Nick Clifton  <nickc@redhat.com>
+
+	PR 22179
+	* riscv-opc.c (riscv_opcodes): Add fmv.x.w and fmv.w.x as the new
+	names for the fmv.x.s and fmv.s.x instructions respectively.
+
+2017-09-26  do  <do@nerilex.org>
+
+	PR 22123
+	* m68k-opc.c (m68k_opcodes): Allow macw and macl instructions to
+	be used on CPUs that have emacs support.
+
+2017-09-21  Sergio Durigan Junior  <sergiodj@redhat.com>
+
+	* aarch64-opc.c (expand_fp_imm): Initialize 'imm'.
+
+2017-09-09  Kamil Rytarowski  <n54@gmx.com>
+
+	* nds32-asm.c: Rename __BIT() to N32_BIT().
+	* nds32-asm.h: Likewise.
+	* nds32-dis.c: Likewise.
+
+2017-09-09  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* i386-dis.c (last_active_prefix): Removed.
+	(ckprefix): Don't set last_active_prefix.
+	(NOTRACK_Fixup): Don't check last_active_prefix.
+
+2017-08-31  Nick Clifton  <nickc@redhat.com>
+
+	* po/fr.po: Updated French translation.
+
+2017-08-31  James Bowman  <james.bowman@ftdichip.com>
+
+	* ft32-dis.c (print_insn_ft32): Correct display of non-address
+	fields.
+
+2017-08-23  Alexander Fedotov <alexander.fedotov@nxp.com>
+	    Edmar Wienskoski <edmar.wienskoski@nxp.com>
+
+	* ppc-dis.c (ppc_mopt): Add PPC_OPCODE_SPE2 and
+	PPC_OPCODE_EFS2 flag to "e200z4" entry.
+	New entries efs2 and spe2.
+	Add PPC_OPCODE_SPE2 and PPC_OPCODE_EFS2 flag to "vle" entry.
+	(SPE2_OPCD_SEGS): New macro.
+	(spe2_opcd_indices): New.
+	(disassemble_init_powerpc): Handle SPE2 opcodes.
+	(lookup_spe2): New function.
+	(print_insn_powerpc): call lookup_spe2.
+	* ppc-opc.c (insert_evuimm1_ex0): New function.
+	(extract_evuimm1_ex0): Likewise.
+	(insert_evuimm_lt8): Likewise.
+	(extract_evuimm_lt8): Likewise.
+	(insert_off_spe2): Likewise.
+	(extract_off_spe2): Likewise.
+	(insert_Ddd): Likewise.
+	(extract_Ddd): Likewise.
+	(DD): New operand.
+	(EVUIMM_LT8): Likewise.
+	(EVUIMM_LT16): Adjust.
+	(MMMM): New operand.
+	(EVUIMM_1): Likewise.
+	(EVUIMM_1_EX0): Likewise.
+	(EVUIMM_2): Adjust.
+	(NNN): New operand.
+	(VX_OFF_SPE2): Likewise.
+	(BBB): Likewise.
+	(DDD): Likewise.
+	(VX_MASK_DDD): New mask.
+	(HH): New operand.
+	(VX_RA_CONST): New macro.
+	(VX_RA_CONST_MASK): Likewise.
+	(VX_RB_CONST): Likewise.
+	(VX_RB_CONST_MASK): Likewise.
+	(VX_OFF_SPE2_MASK): Likewise.
+	(VX_SPE_CRFD): Likewise.
+	(VX_SPE_CRFD_MASK VX): Likewise.
+	(VX_SPE2_CLR): Likewise.
+	(VX_SPE2_CLR_MASK): Likewise.
+	(VX_SPE2_SPLATB): Likewise.
+	(VX_SPE2_SPLATB_MASK): Likewise.
+	(VX_SPE2_OCTET): Likewise.
+	(VX_SPE2_OCTET_MASK): Likewise.
+	(VX_SPE2_DDHH): Likewise.
+	(VX_SPE2_DDHH_MASK): Likewise.
+	(VX_SPE2_HH): Likewise.
+	(VX_SPE2_HH_MASK): Likewise.
+	(VX_SPE2_EVMAR): Likewise.
+	(VX_SPE2_EVMAR_MASK): Likewise.
+	(PPCSPE2): Likewise.
+	(PPCEFS2): Likewise.
+	(vle_opcodes): Add EFS2 and some missing SPE opcodes.
+	(powerpc_macros): Map old SPE instructions have new names
+	with the same opcodes. Add SPE2 instructions which just are
+	mapped to SPE2.
+	(spe2_opcodes): Add SPE2 opcodes.
+
+2017-08-23  Alan Modra  <amodra@gmail.com>
+
+	* ppc-opc.c: Formatting and comment fixes.  Move insert and
+	extract functions earlier, deleting forward declarations.
+	(insert_nbi, insert_raq, insert_rbx): Expand use of RT_MASK and
+	RA_MASK.
+
+2017-08-22  Palmer Dabbelt  <palmer@dabbelt.com>
+
+	* riscv-opc.c (riscv_opcodes): Mark "c.nop" as an alias.
+
+2017-08-21  Alexander Fedotov <alexander.fedotov@nxp.com>
+	    Edmar Wienskoski <edmar.wienskoski@nxp.com>
+
+	* ppc-opc.c (insert_evuimm2_ex0): New function.
+	(extract_evuimm2_ex0): Likewise.
+	(insert_evuimm4_ex0): Likewise.
+	(extract_evuimm4_ex0): Likewise.
+	(insert_evuimm8_ex0): Likewise.
+	(extract_evuimm8_ex0): Likewise.
+	(insert_evuimm_lt16): Likewise.
+	(extract_evuimm_lt16): Likewise.
+	(insert_rD_rS_even): Likewise.
+	(extract_rD_rS_even): Likewise.
+	(insert_off_lsp): Likewise.
+	(extract_off_lsp): Likewise.
+	(RD_EVEN): New operand.
+	(RS_EVEN): Likewise.
+	(RSQ): Adjust.
+	(EVUIMM_LT16): New operand.
+	(HTM_SI): Adjust.
+	(EVUIMM_2_EX0): New operand.
+	(EVUIMM_4): Adjust.
+	(EVUIMM_4_EX0): New operand.
+	(EVUIMM_8): Adjust.
+	(EVUIMM_8_EX0): New operand.
+	(WS): Adjust.
+	(VX_OFF): New operand.
+	(VX_LSP): New macro.
+	(VX_LSP_MASK): Likewise.
+	(VX_LSP_OFF_MASK): Likewise.
+	(PPC_OPCODE_LSP): Likewise.
+	(vle_opcodes): Add LSP opcodes.
+	* ppc-dis.c (ppc_mopt): Add PPC_OPCODE_LSP flag to "vle" entry.
+
+2017-08-09  Jiong Wang  <jiong.wang@arm.com>
+
+	* arm-dis.c (thumb32_opcodes): Use format 'R' instead of 'S' for
+	register operands in CRC instructions.
+	(print_insn_thumb32): Remove "<bitfield>S" support.  Updated the
+	comments.
+
+2017-08-07  H.J. Lu  <hongjiu.lu@intel.com>
+
+	* disassemble.c (disassembler): Mark big and mach with
+	ATTRIBUTE_UNUSED.
+
+2017-08-07  Maciej W. Rozycki  <macro@imgtec.com>
+
+	* disassemble.c (disassembler): Remove arch/mach/endian
+	assertions.
+
+2017-07-25  Nick Clifton  <nickc@redhat.com>
+
+	PR 21739
+	* arc-opc.c (insert_rhv2): Use lower case first letter in error
+	message.
+	(insert_r0): Likewise.
+	(insert_r1): Likewise.
+	(insert_r2): Likewise.
+	(insert_r3): Likewise.
+	(insert_sp): Likewise.
+	(insert_gp): Likewise.
+	(insert_pcl): Likewise.
+	(insert_blink): Likewise.
+	(insert_ilink1): Likewise.
+	(insert_ilink2): Likewise.
+	(insert_ras): Likewise.
+	(insert_rbs): Likewise.
+	(insert_rcs): Likewise.
+	(insert_simm3s): Likewise.
+	(insert_rrange): Likewise.
+	(insert_r13el): Likewise.
+	(insert_fpel): Likewise.
+	(insert_blinkel): Likewise.
+	(insert_pclel): Likewise.
+	(insert_nps_bitop_size_2b): Likewise.
+	(insert_nps_imm_offset): Likewise.
+	(insert_nps_imm_entry): Likewise.
+	(insert_nps_size_16bit): Likewise.
+	(insert_nps_##NAME##_pos): Likewise.
+	(insert_nps_##NAME): Likewise.
+	(insert_nps_bitop_ins_ext): Likewise.
+	(insert_nps_##NAME): Likewise.
+	(insert_nps_min_hofs): Likewise.
+	(insert_nps_##NAME): Likewise.
+	(insert_nps_rbdouble_64): Likewise.
+	(insert_nps_misc_imm_offset): Likewise.
+	* riscv-dis.c (print_riscv_disassembler_options): Fix typo in
+	option description.
+
+2017-07-24  Laurent Desnogues  <laurent.desnogues@arm.com>
+	    Jiong Wang  <jiong.wang@arm.com>
+
+	* aarch64-gen.c (print_decision_tree_1): Reverse the index of PATTERN to
+	correct the print.
+	* aarch64-dis-2.c: Regenerated.
+
+2017-07-21  Andreas Krebbel  <krebbel@linux.vnet.ibm.com>
+
+	* s390-mkopc.c (main): Enable z14 as CPU string in the opcode
+	table.
+
+2017-07-20  Nick Clifton  <nickc@redhat.com>
+
+	* po/de.po: Updated German translation.
+
+2017-07-19  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* arc-regs.h (sec_stat): New aux register.
+	(aux_kernel_sp): Likewise.
+	(aux_sec_u_sp): Likewise.
+	(aux_sec_k_sp): Likewise.
+	(sec_vecbase_build): Likewise.
+	(nsc_table_top): Likewise.
+	(nsc_table_base): Likewise.
+	(ersec_stat): Likewise.
+	(aux_sec_except): Likewise.
+
+2017-07-19  Claudiu Zissulescu  <claziss@synopsys.com>
+
+	* arc-opc.c (extract_uimm12_20): New function.
+	(UIMM12_20): New operand.
+	(SIMM3_5_S): Adjust.
+	* arc-tbl.h (sjli): Add new instruction.
+
+2017-07-19  Claudiu Zissulescu  <claziss@synopsys.com>
+	    John Eric Martin  <John.Martin@emmicro-us.com>
+
+	* arc-opc.c (UIMM10_6_S_JLIOFF): Define.
+	(UIMM3_23): Adjust accordingly.
+	* arc-regs.h: Add/correct jli_base register.
+	* arc-tbl.h (jli_s): Likewise.
+
+2017-07-18  Nick Clifton  <nickc@redhat.com>
+
+	PR 21775
+	* aarch64-opc.c: Fix spelling typos.
+	* i386-dis.c: Likewise.
+
+2017-07-14  Ravi Bangoria  <ravi.bangoria@linux.vnet.ibm.com>
+
+	* dis-buf.c (buffer_read_memory): Change type of end_addr_offset,
+	max_addr_offset and octets variables to size_t.
+
+2017-07-12  Alan Modra  <amodra@gmail.com>
+
+	* po/da.po: Update from translationproject.org/latest/opcodes/.
+	* po/de.po: Likewise.
+	* po/es.po: Likewise.
+	* po/fi.po: Likewise.
+	* po/fr.po: Likewise.
+	* po/id.po: Likewise.
+	* po/it.po: Likewise.
+	* po/nl.po: Likewise.
+	* po/pt_BR.po: Likewise.
+	* po/ro.po: Likewise.
+	* po/sv.po: Likewise.
+	* po/tr.po: Likewise.
+	* po/uk.po: Likewise.
+	* po/vi.po: Likewise.
+	* po/zh_CN.po: Likewise.
+
 2017-07-11  Yao Qi  <yao.qi@linaro.org>
 	    Alan Modra  <amodra@gmail.com>
 

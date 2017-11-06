@@ -125,9 +125,7 @@ static int dcache_read_line (DCACHE *dcache, struct dcache_block *db);
 
 static struct dcache_block *dcache_alloc (DCACHE *dcache, CORE_ADDR addr);
 
-static void dcache_info (char *exp, int tty);
-
-void _initialize_dcache (void);
+static void info_dcache_command (char *exp, int tty);
 
 static int dcache_enabled_p = 0; /* OBSOLETE */
 
@@ -642,7 +640,7 @@ dcache_info_1 (DCACHE *dcache, char *exp)
 }
 
 static void
-dcache_info (char *exp, int tty)
+info_dcache_command (char *exp, int tty)
 {
   dcache_info_1 (target_dcache_get (), exp);
 }
@@ -674,7 +672,7 @@ set_dcache_line_size (char *args, int from_tty,
 }
 
 static void
-set_dcache_command (char *arg, int from_tty)
+set_dcache_command (const char *arg, int from_tty)
 {
   printf_unfiltered (
      "\"set dcache\" must be followed by the name of a subcommand.\n");
@@ -682,7 +680,7 @@ set_dcache_command (char *arg, int from_tty)
 }
 
 static void
-show_dcache_command (char *args, int from_tty)
+show_dcache_command (const char *args, int from_tty)
 {
   cmd_show_list (dcache_show_list, from_tty, "");
 }
@@ -702,7 +700,7 @@ exists only for compatibility reasons."),
 			   show_dcache_enabled_p,
 			   &setlist, &showlist);
 
-  add_info ("dcache", dcache_info,
+  add_info ("dcache", info_dcache_command,
 	    _("\
 Print information on the dcache performance.\n\
 With no arguments, this command prints the cache configuration and a\n\

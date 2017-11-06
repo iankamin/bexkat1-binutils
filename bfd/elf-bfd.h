@@ -266,6 +266,13 @@ struct elf_link_hash_entry
 #define SYMBOL_CALLS_LOCAL(INFO, H) \
   _bfd_elf_symbol_refs_local_p (H, INFO, 1)
 
+/* Whether an undefined weak symbol should resolve to its link-time
+   value, even in PIC or PIE objects.  */
+#define UNDEFWEAK_NO_DYNAMIC_RELOC(INFO, H)		\
+  ((H)->root.type == bfd_link_hash_undefweak		\
+   && (ELF_ST_VISIBILITY ((H)->other) != STV_DEFAULT	\
+       || (INFO)->dynamic_undefined_weak == 0))
+
 /* Common symbols that are turned into definitions don't have the
    DEF_REGULAR flag set, so they might appear to be undefined.
    Symbols defined in linker scripts also don't have DEF_REGULAR set.  */
@@ -1160,12 +1167,6 @@ struct elf_backend_data
   bfd_boolean (*gc_mark_extra_sections)
     (struct bfd_link_info *, elf_gc_mark_hook_fn);
 
-  /* This function, if defined, is called during the sweep phase of gc
-     in order that a backend might update any data structures it might
-     be maintaining.  */
-  bfd_boolean (*gc_sweep_hook)
-    (bfd *, struct bfd_link_info *, asection *, const Elf_Internal_Rela *);
-
   /* This function, if defined, is called after the ELF headers have
      been created.  This allows for things like the OS and ABI versions
      to be changed.  */
@@ -1268,6 +1269,11 @@ struct elf_backend_data
   /* This function, if defined, is called when an NT_PSINFO or NT_PRPSINFO
      note is found in a core file.  */
   bfd_boolean (*elf_backend_grok_psinfo)
+    (bfd *, Elf_Internal_Note *);
+
+  /* This function, if defined, is called when a "FreeBSD" NT_PRSTATUS
+     note is found in a core file.  */
+  bfd_boolean (*elf_backend_grok_freebsd_prstatus)
     (bfd *, Elf_Internal_Note *);
 
   /* This function, if defined, is called to write a note to a corefile.  */
@@ -1552,6 +1558,14 @@ struct elf_backend_data
   /* True if `_bfd_elf_link_renumber_dynsyms' must be called even for
      static binaries.  */
   unsigned always_renumber_dynsyms : 1;
+
+  /* True if the 32-bit Linux PRPSINFO structure's `pr_uid' and `pr_gid'
+     members use a 16-bit data type.  */
+  unsigned linux_prpsinfo32_ugid16 : 1;
+
+  /* True if the 64-bit Linux PRPSINFO structure's `pr_uid' and `pr_gid'
+     members use a 16-bit data type.  */
+  unsigned linux_prpsinfo64_ugid16 : 1;
 };
 
 /* Information about reloc sections associated with a bfd_elf_section_data
@@ -1887,21 +1901,27 @@ struct elf_obj_tdata
 
   /* An identifier used to distinguish different target
      specific extensions to this structure.  */
-  enum elf_target_id object_id;
+  ENUM_BITFIELD (elf_target_id) object_id : 6;
 
   /* Whether a dyanmic object was specified normally on the linker
      command line, or was specified when --as-needed was in effect,
      or was found via a DT_NEEDED entry.  */
-  enum dynamic_lib_link_class dyn_lib_class;
+  ENUM_BITFIELD (dynamic_lib_link_class) dyn_lib_class : 4;
+
+  /* Whether if the bfd contains symbols that have the STT_GNU_IFUNC
+     symbol type or STB_GNU_UNIQUE binding.  */
+  ENUM_BITFIELD (elf_gnu_symbols) has_gnu_symbols : 3;
+
+  /* Whether if the bfd contains the GNU_PROPERTY_NO_COPY_ON_PROTECTED
+     property.  */
+  unsigned int has_no_copy_on_protected : 1;
 
   /* Irix 5 often screws up the symbol table, sorting local symbols
      after global symbols.  This flag is set if the symbol table in
      this BFD appears to be screwed up.  If it is, we ignore the
      sh_info field in the symbol table header, and always read all the
      symbols.  */
-  bfd_boolean bad_symtab;
-
-  enum elf_gnu_symbols has_gnu_symbols;
+  unsigned int bad_symtab : 1;
 
   /* Information grabbed from an elf core file.  */
   struct core_elf_obj_tdata *core;
@@ -1956,6 +1976,8 @@ struct elf_obj_tdata
 #define elf_other_obj_attributes_proc(bfd) \
   (elf_other_obj_attributes (bfd) [OBJ_ATTR_PROC])
 #define elf_properties(bfd) (elf_tdata (bfd) -> properties)
+#define elf_has_no_copy_on_protected(bfd) \
+  (elf_tdata(bfd) -> has_no_copy_on_protected)
 
 extern void _bfd_elf_swap_verdef_in
   (bfd *, const Elf_External_Verdef *, Elf_Internal_Verdef *);
@@ -2582,10 +2604,6 @@ extern char *elfcore_write_linux_prpsinfo32
 extern char *elfcore_write_linux_prpsinfo64
   (bfd *, char *, int *, const struct elf_internal_linux_prpsinfo *);
 
-/* Linux/PPC32 uses different layout compared to most archs.  */
-extern char *elfcore_write_ppc_linux_prpsinfo32
-  (bfd *, char *, int *, const struct elf_internal_linux_prpsinfo *);
-
 extern bfd *_bfd_elf32_bfd_from_remote_memory
   (bfd *templ, bfd_vma ehdr_vma, bfd_size_type size, bfd_vma *loadbasep,
    int (*target_read_memory) (bfd_vma, bfd_byte *, bfd_size_type));
@@ -2651,9 +2669,6 @@ extern bfd_boolean _bfd_elf_allocate_ifunc_dyn_relocs
   (struct bfd_link_info *, struct elf_link_hash_entry *,
    struct elf_dyn_relocs **, bfd_boolean *, unsigned int,
    unsigned int, unsigned int, bfd_boolean);
-extern long _bfd_elf_ifunc_get_synthetic_symtab
-  (bfd *, long, asymbol **, long, asymbol **, asymbol **, asection *,
-   bfd_vma *(*) (bfd *, asymbol **, asection *, asection *));
 
 extern void elf_append_rela (bfd *, asection *, Elf_Internal_Rela *);
 extern void elf_append_rel (bfd *, asection *, Elf_Internal_Rela *);
@@ -2802,7 +2817,9 @@ extern asection _bfd_elf_large_com_section;
    library, if any.  A unique symbol can never be bound locally.  */
 #define SYMBOLIC_BIND(INFO, H) \
     (!(H)->unique_global \
-     && ((INFO)->symbolic || ((INFO)->dynamic && !(H)->dynamic)))
+     && ((INFO)->symbolic \
+	 || (H)->start_stop \
+	 || ((INFO)->dynamic && !(H)->dynamic)))
 
 #ifdef __cplusplus
 }

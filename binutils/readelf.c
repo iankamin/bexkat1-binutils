@@ -322,6 +322,30 @@ static const char * get_symbol_version_string
     }						\
   while (0)
 
+/* Print a BFD_VMA to an internal buffer, for use in error messages.
+   BFD_FMA_FMT can't be used in translated strings.  */
+
+static const char *
+bfd_vmatoa (char *fmtch, bfd_vma value)
+{
+  /* bfd_vmatoa is used more then once in a printf call for output.
+     Cycle through an array of buffers.  */
+  static int buf_pos = 0;
+  static struct bfd_vmatoa_buf
+  {
+    char place[64];
+  } buf[4];
+  char *ret;
+  char fmt[32];
+
+  ret = buf[buf_pos++].place;
+  buf_pos %= ARRAY_SIZE (buf);
+
+  sprintf (fmt, "%%%s%s", BFD_VMA_FMT, fmtch);
+  snprintf (ret, sizeof (buf[0].place), fmt, value);
+  return ret;
+}
+
 /* Retrieve NMEMB structures, each SIZE bytes long from FILE starting at OFFSET +
    the offset of the current archive member, if we are examining an archive.
    Put the retrieved data into VAR, if it is not NULL.  Otherwise allocate a buffer
@@ -348,9 +372,9 @@ get_data (void * var, FILE * file, unsigned long offset, bfd_size_type size,
 	  || (bfd_size_type) ((size_t) nmemb) != nmemb))
     {
       if (reason)
-	error (_("Size truncation prevents reading 0x%" BFD_VMA_FMT "x"
-		 " elements of size 0x%" BFD_VMA_FMT "x for %s\n"),
-	       nmemb, size, reason);
+	error (_("Size truncation prevents reading %s"
+		 " elements of size %s for %s\n"),
+	       bfd_vmatoa ("u", nmemb), bfd_vmatoa ("u", size), reason);
       return NULL;
     }
 
@@ -358,9 +382,9 @@ get_data (void * var, FILE * file, unsigned long offset, bfd_size_type size,
   if (amt < nmemb)
     {
       if (reason)
-	error (_("Size overflow prevents reading 0x%" BFD_VMA_FMT "x"
-		 " elements of size 0x%" BFD_VMA_FMT "x for %s\n"),
-	       nmemb, size, reason);
+	error (_("Size overflow prevents reading %s"
+		 " elements of size %s for %s\n"),
+	       bfd_vmatoa ("u", nmemb), bfd_vmatoa ("u", size), reason);
       return NULL;
     }
 
@@ -370,9 +394,8 @@ get_data (void * var, FILE * file, unsigned long offset, bfd_size_type size,
       || offset + archive_file_offset + amt > current_file_size)
     {
       if (reason)
-	error (_("Reading 0x%" BFD_VMA_FMT "x"
-		 " bytes extends past end of file for %s\n"),
-	       amt, reason);
+	error (_("Reading %s bytes extends past end of file for %s\n"),
+	       bfd_vmatoa ("u", amt), reason);
       return NULL;
     }
 
@@ -395,9 +418,8 @@ get_data (void * var, FILE * file, unsigned long offset, bfd_size_type size,
       if (mvar == NULL)
 	{
 	  if (reason)
-	    error (_("Out of memory allocating 0x%" BFD_VMA_FMT "x"
-		     " bytes for %s\n"),
-		   amt, reason);
+	    error (_("Out of memory allocating %s bytes for %s\n"),
+		   bfd_vmatoa ("u", amt), reason);
 	  return NULL;
 	}
 
@@ -407,8 +429,8 @@ get_data (void * var, FILE * file, unsigned long offset, bfd_size_type size,
   if (fread (mvar, (size_t) size, (size_t) nmemb, file) != nmemb)
     {
       if (reason)
-	error (_("Unable to read in 0x%" BFD_VMA_FMT "x bytes of %s\n"),
-	       amt, reason);
+	error (_("Unable to read in %s bytes of %s\n"),
+	       bfd_vmatoa ("u", amt), reason);
       if (mvar != var)
 	free (mvar);
       return NULL;
@@ -1526,7 +1548,7 @@ dump_relocations (FILE * file,
       if (rtype == NULL)
 	printf (_("unrecognized: %-7lx"), (unsigned long) type & 0xffffffff);
       else
-	printf (do_wide ? "%-22.22s" : "%-17.17s", rtype);
+	printf (do_wide ? "%-22s" : "%-17.17s", rtype);
 
       if (elf_header.e_machine == EM_ALPHA
 	  && rtype != NULL
@@ -3332,6 +3354,7 @@ get_machine_flags (unsigned e_flags, unsigned e_machine)
 	    case E_MIPS_MACH_4650: strcat (buf, ", 4650"); break;
 	    case E_MIPS_MACH_5400: strcat (buf, ", 5400"); break;
 	    case E_MIPS_MACH_5500: strcat (buf, ", 5500"); break;
+	    case E_MIPS_MACH_5900: strcat (buf, ", 5900"); break;
 	    case E_MIPS_MACH_SB1:  strcat (buf, ", sb1");  break;
 	    case E_MIPS_MACH_9000: strcat (buf, ", 9000"); break;
   	    case E_MIPS_MACH_LS2E: strcat (buf, ", loongson-2e"); break;
@@ -5594,6 +5617,8 @@ get_elf_section_flags (bfd_vma sh_flags)
       /* 23 */ { STRING_COMMA_LEN ("COMDEF") },
       /* GNU specific.  */
       /* 24 */ { STRING_COMMA_LEN ("GNU_MBIND") },
+      /* VLE specific.  */
+      /* 25 */ { STRING_COMMA_LEN ("VLE") },
     };
 
   if (do_section_details)
@@ -5674,6 +5699,10 @@ get_elf_section_flags (bfd_vma sh_flags)
 		    default: break;
 		    }
 		  break;
+		case EM_PPC:
+		  if (flag == SHF_PPC_VLE)
+		    sindex = 25;
+		  break;
 
 		default:
 		  break;
@@ -5731,6 +5760,9 @@ get_elf_section_flags (bfd_vma sh_flags)
 	      else if (elf_header.e_machine == EM_ARM
 		       && flag == SHF_ARM_PURECODE)
 		  *p = 'y';
+	      else if (elf_header.e_machine == EM_PPC
+		       && flag == SHF_PPC_VLE)
+		  *p = 'v';
 	      else if (flag & SHF_MASKOS)
 		{
 		  *p = 'o';
@@ -6467,6 +6499,8 @@ process_section_headers (FILE * file)
 	printf (_("l (large), "));
       else if (elf_header.e_machine == EM_ARM)
 	printf (_("y (purecode), "));
+      else if (elf_header.e_machine == EM_PPC)
+	printf (_("v (VLE), "));
       printf ("p (processor specific)\n");
     }
 
@@ -6713,7 +6747,7 @@ process_section_groups (FILE * file)
 		      error (_("section [%5u] in group section [%5u] > maximum section [%5u]\n"),
 			     entry, i, elf_header.e_shnum - 1);
 		      if (num_group_errors == 10)
-			warn (_("Futher error messages about overlarge group section indicies suppressed\n"));
+			warn (_("Further error messages about overlarge group section indicies suppressed\n"));
 		    }
 		  continue;
 		}
@@ -7123,7 +7157,21 @@ process_relocs (FILE * file)
 	}
 
       if (! found)
-	printf (_("\nThere are no relocations in this file.\n"));
+	{
+	  /* Users sometimes forget the -D option, so try to be helpful.  */
+	  for (i = 0; i < ARRAY_SIZE (dynamic_relocations); i++)
+	    {
+	      if (dynamic_info [dynamic_relocations [i].size])
+		{
+		  printf (_("\nThere are no static relocations in this file."));
+		  printf (_("\nTo see the dynamic relocations add --use-dynamic to the command line.\n"));
+
+		  break;
+		}
+	    }
+	  if (i == ARRAY_SIZE (dynamic_relocations))
+	    printf (_("\nThere are no relocations in this file.\n"));
+	}
     }
 
   return TRUE;
@@ -8704,7 +8752,7 @@ decode_arm_unwind (struct arm_unw_aux_info *  aux,
   unsigned int more_words = 0;
   struct absaddr addr;
   bfd_vma sym_name = (bfd_vma) -1;
-  bfd_boolean res = FALSE;
+  bfd_boolean res = TRUE;
 
   if (remaining == 0)
     {
@@ -10160,9 +10208,8 @@ process_version_sections (FILE * file)
 	case SHT_GNU_verdef:
 	  {
 	    Elf_External_Verdef * edefs;
-	    unsigned int idx;
-	    unsigned int cnt;
-	    unsigned int end;
+	    unsigned long idx;
+	    unsigned long cnt;
 	    char * endbuf;
 
 	    found = TRUE;
@@ -10184,22 +10231,15 @@ process_version_sections (FILE * file)
 	      break;
 	    endbuf = (char *) edefs + section->sh_size;
 
-	    /* PR 17531: file: id:000001,src:000172+005151,op:splice,rep:2.  */
-	    end = (section->sh_info < section->sh_size
-		   ? section->sh_info : section->sh_size);
-	    for (idx = cnt = 0; cnt < end; ++cnt)
+	    for (idx = cnt = 0; cnt < section->sh_info; ++cnt)
 	      {
 		char * vstart;
 		Elf_External_Verdef * edef;
 		Elf_Internal_Verdef ent;
 		Elf_External_Verdaux * eaux;
 		Elf_Internal_Verdaux aux;
-		unsigned int isum;
+		unsigned long isum;
 		int j;
-
-		/* Check for very large indices.  */
-		if (idx > (size_t) (endbuf - (char *) edefs))
-		  break;
 
 		vstart = ((char *) edefs) + idx;
 		if (vstart + sizeof (*edef) > endbuf)
@@ -10215,19 +10255,20 @@ process_version_sections (FILE * file)
 		ent.vd_aux     = BYTE_GET (edef->vd_aux);
 		ent.vd_next    = BYTE_GET (edef->vd_next);
 
-		printf (_("  %#06x: Rev: %d  Flags: %s"),
+		printf (_("  %#06lx: Rev: %d  Flags: %s"),
 			idx, ent.vd_version, get_ver_flags (ent.vd_flags));
 
 		printf (_("  Index: %d  Cnt: %d  "),
 			ent.vd_ndx, ent.vd_cnt);
 
-		/* Check for overflow and underflow.  */
-		if (ent.vd_aux + sizeof (* eaux) > (size_t) (endbuf - vstart)
-		    || (vstart + ent.vd_aux < vstart))
+		/* Check for overflow.  */
+		if (ent.vd_aux > (size_t) (endbuf - vstart))
 		  break;
 
 		vstart += ent.vd_aux;
 
+		if (vstart + sizeof (*eaux) > endbuf)
+		  break;
 		eaux = (Elf_External_Verdaux *) vstart;
 
 		aux.vda_name = BYTE_GET (eaux->vda_name);
@@ -10242,6 +10283,14 @@ process_version_sections (FILE * file)
 
 		for (j = 1; j < ent.vd_cnt; j++)
 		  {
+		    if (aux.vda_next < sizeof (*eaux)
+			&& !(j == ent.vd_cnt - 1 && aux.vda_next == 0))
+		      {
+			warn (_("Invalid vda_next field of %lx\n"),
+			      aux.vda_next);
+			j = ent.vd_cnt;
+			break;
+		      }
 		    /* Check for overflow.  */
 		    if (aux.vda_next > (size_t) (endbuf - vstart))
 		      break;
@@ -10249,18 +10298,18 @@ process_version_sections (FILE * file)
 		    isum   += aux.vda_next;
 		    vstart += aux.vda_next;
 
-		    eaux = (Elf_External_Verdaux *) vstart;
 		    if (vstart + sizeof (*eaux) > endbuf)
 		      break;
+		    eaux = (Elf_External_Verdaux *) vstart;
 
 		    aux.vda_name = BYTE_GET (eaux->vda_name);
 		    aux.vda_next = BYTE_GET (eaux->vda_next);
 
 		    if (VALID_DYNAMIC_NAME (aux.vda_name))
-		      printf (_("  %#06x: Parent %d: %s\n"),
+		      printf (_("  %#06lx: Parent %d: %s\n"),
 			      isum, j, GET_DYNAMIC_NAME (aux.vda_name));
 		    else
-		      printf (_("  %#06x: Parent %d, name index: %ld\n"),
+		      printf (_("  %#06lx: Parent %d, name index: %ld\n"),
 			      isum, j, aux.vda_name);
 		  }
 
@@ -10269,7 +10318,14 @@ process_version_sections (FILE * file)
 
 		/* PR 17531:
 		   file: id:000001,src:000172+005151,op:splice,rep:2.  */
-		if (idx + ent.vd_next < idx)
+		if (ent.vd_next < sizeof (*edef)
+		    && !(cnt == section->sh_info - 1 && ent.vd_next == 0))
+		  {
+		    warn (_("Invalid vd_next field of %lx\n"), ent.vd_next);
+		    cnt = section->sh_info;
+		    break;
+		  }
+		if (ent.vd_next > (size_t) (endbuf - ((char *) edefs + idx)))
 		  break;
 
 		idx += ent.vd_next;
@@ -10285,8 +10341,8 @@ process_version_sections (FILE * file)
 	case SHT_GNU_verneed:
 	  {
 	    Elf_External_Verneed * eneed;
-	    unsigned int idx;
-	    unsigned int cnt;
+	    unsigned long idx;
+	    unsigned long cnt;
 	    char * endbuf;
 
 	    found = TRUE;
@@ -10312,12 +10368,9 @@ process_version_sections (FILE * file)
 	      {
 		Elf_External_Verneed * entry;
 		Elf_Internal_Verneed ent;
-		unsigned int isum;
+		unsigned long isum;
 		int j;
 		char * vstart;
-
-		if (idx > (size_t) (endbuf - (char *) eneed))
-		  break;
 
 		vstart = ((char *) eneed) + idx;
 		if (vstart + sizeof (*entry) > endbuf)
@@ -10331,7 +10384,7 @@ process_version_sections (FILE * file)
 		ent.vn_aux     = BYTE_GET (entry->vn_aux);
 		ent.vn_next    = BYTE_GET (entry->vn_next);
 
-		printf (_("  %#06x: Version: %d"), idx, ent.vn_version);
+		printf (_("  %#06lx: Version: %d"), idx, ent.vn_version);
 
 		if (VALID_DYNAMIC_NAME (ent.vn_file))
 		  printf (_("  File: %s"), GET_DYNAMIC_NAME (ent.vn_file));
@@ -10361,24 +10414,26 @@ process_version_sections (FILE * file)
 		    aux.vna_next  = BYTE_GET (eaux->vna_next);
 
 		    if (VALID_DYNAMIC_NAME (aux.vna_name))
-		      printf (_("  %#06x:   Name: %s"),
+		      printf (_("  %#06lx:   Name: %s"),
 			      isum, GET_DYNAMIC_NAME (aux.vna_name));
 		    else
-		      printf (_("  %#06x:   Name index: %lx"),
+		      printf (_("  %#06lx:   Name index: %lx"),
 			      isum, aux.vna_name);
 
 		    printf (_("  Flags: %s  Version: %d\n"),
 			    get_ver_flags (aux.vna_flags), aux.vna_other);
 
-		    /* Check for overflow.  */
-		    if (aux.vna_next > (size_t) (endbuf - vstart)
-			|| (aux.vna_next == 0 && j < ent.vn_cnt - 1))
+		    if (aux.vna_next < sizeof (*eaux)
+			&& !(j == ent.vn_cnt - 1 && aux.vna_next == 0))
 		      {
 			warn (_("Invalid vna_next field of %lx\n"),
 			      aux.vna_next);
 			j = ent.vn_cnt;
 			break;
 		      }
+		    /* Check for overflow.  */
+		    if (aux.vna_next > (size_t) (endbuf - vstart))
+		      break;
 		    isum   += aux.vna_next;
 		    vstart += aux.vna_next;
 		  }
@@ -10386,12 +10441,15 @@ process_version_sections (FILE * file)
 		if (j < ent.vn_cnt)
 		  warn (_("Missing Version Needs auxillary information\n"));
 
-		if (ent.vn_next == 0 && cnt < section->sh_info - 1)
+		if (ent.vn_next < sizeof (*entry)
+		    && !(cnt == section->sh_info - 1 && ent.vn_next == 0))
 		  {
-		    warn (_("Corrupt Version Needs structure - offset to next structure is zero with entries still left to be processed\n"));
+		    warn (_("Invalid vn_next field of %lx\n"), ent.vn_next);
 		    cnt = section->sh_info;
 		    break;
 		  }
+		if (ent.vn_next > (size_t) (endbuf - ((char *) eneed + idx)))
+		  break;
 		idx += ent.vn_next;
 	      }
 
@@ -10942,9 +11000,8 @@ get_dynamic_data (FILE * file, bfd_size_type number, unsigned int ent_size)
   if (sizeof (size_t) < sizeof (bfd_size_type)
       && (bfd_size_type) ((size_t) number) != number)
     {
-      error (_("Size truncation prevents reading %" BFD_VMA_FMT "u"
-	       " elements of size %u\n"),
-	     number, ent_size);
+      error (_("Size truncation prevents reading %s elements of size %u\n"),
+	     bfd_vmatoa ("u", number), ent_size);
       return NULL;
     }
 
@@ -10952,23 +11009,23 @@ get_dynamic_data (FILE * file, bfd_size_type number, unsigned int ent_size)
      attempting to allocate memory when the read is bound to fail.  */
   if (ent_size * number > current_file_size)
     {
-      error (_("Invalid number of dynamic entries: %" BFD_VMA_FMT "u\n"),
-	     number);
+      error (_("Invalid number of dynamic entries: %s\n"),
+	     bfd_vmatoa ("u", number));
       return NULL;
     }
 
   e_data = (unsigned char *) cmalloc ((size_t) number, ent_size);
   if (e_data == NULL)
     {
-      error (_("Out of memory reading %" BFD_VMA_FMT "u dynamic entries\n"),
-	     number);
+      error (_("Out of memory reading %s dynamic entries\n"),
+	     bfd_vmatoa ("u", number));
       return NULL;
     }
 
   if (fread (e_data, ent_size, (size_t) number, file) != number)
     {
-      error (_("Unable to read in %" BFD_VMA_FMT "u bytes of dynamic data\n"),
-	     number * ent_size);
+      error (_("Unable to read in %s bytes of dynamic data\n"),
+	     bfd_vmatoa ("u", number * ent_size));
       free (e_data);
       return NULL;
     }
@@ -10976,9 +11033,8 @@ get_dynamic_data (FILE * file, bfd_size_type number, unsigned int ent_size)
   i_data = (bfd_vma *) cmalloc ((size_t) number, sizeof (*i_data));
   if (i_data == NULL)
     {
-      error (_("Out of memory allocating space for %" BFD_VMA_FMT "u"
-	       " dynamic entries\n"),
-	     number);
+      error (_("Out of memory allocating space for %s dynamic entries\n"),
+	     bfd_vmatoa ("u", number));
       free (e_data);
       return NULL;
     }
@@ -11401,6 +11457,7 @@ process_symbol_table (FILE * file)
       if (dynamic_info[DT_HASH])
 	{
 	  bfd_vma si;
+	  char *visited;
 
 	  printf (_("\nSymbol table for image:\n"));
 	  if (is_32bit_elf)
@@ -11408,14 +11465,22 @@ process_symbol_table (FILE * file)
 	  else
 	    printf (_("  Num Buc:    Value          Size   Type   Bind Vis      Ndx Name\n"));
 
+	  visited = xcmalloc (nchains, 1);
+	  memset (visited, 0, nchains);
 	  for (hn = 0; hn < nbuckets; hn++)
 	    {
-	      if (! buckets[hn])
-		continue;
-
-	      for (si = buckets[hn]; si < nchains && si > 0; si = chains[si])
-		print_dynamic_symbol (si, hn);
+	      for (si = buckets[hn]; si > 0; si = chains[si])
+		{
+		  print_dynamic_symbol (si, hn);
+		  if (si >= nchains || visited[si])
+		    {
+		      error (_("histogram chain is corrupt\n"));
+		      break;
+		    }
+		  visited[si] = 1;
+		}
 	    }
+	  free (visited);
 	}
 
       if (dynamic_info_DT_GNU_HASH)
@@ -11574,7 +11639,7 @@ process_symbol_table (FILE * file)
       unsigned long maxlength = 0;
       unsigned long nzero_counts = 0;
       unsigned long nsyms = 0;
-      unsigned long chained;
+      char *visited;
 
       printf (_("\nHistogram for bucket list length (total of %lu buckets):\n"),
 	      (unsigned long) nbuckets);
@@ -11585,28 +11650,26 @@ process_symbol_table (FILE * file)
 	  error (_("Out of memory allocating space for histogram buckets\n"));
 	  return FALSE;
 	}
+      visited = xcmalloc (nchains, 1);
+      memset (visited, 0, nchains);
 
       printf (_(" Length  Number     %% of total  Coverage\n"));
       for (hn = 0; hn < nbuckets; ++hn)
 	{
-	  for (si = buckets[hn], chained = 0;
-	       si > 0 && si < nchains && si < nbuckets && chained <= nchains;
-	       si = chains[si], ++chained)
+	  for (si = buckets[hn]; si > 0; si = chains[si])
 	    {
 	      ++nsyms;
 	      if (maxlength < ++lengths[hn])
 		++maxlength;
+	      if (si >= nchains || visited[si])
+		{
+		  error (_("histogram chain is corrupt\n"));
+		  break;
+		}
+	      visited[si] = 1;
 	    }
-
-	    /* PR binutils/17531: A corrupt binary could contain broken
-	       histogram data.  Do not go into an infinite loop trying
-	       to process it.  */
-	    if (chained > nchains)
-	      {
-		error (_("histogram chain is corrupt\n"));
-		break;
-	      }
 	}
+      free (visited);
 
       counts = (unsigned long *) calloc (maxlength + 1, sizeof (*counts));
       if (counts == NULL)
@@ -12078,8 +12141,10 @@ is_32bit_abs_reloc (unsigned int reloc_type)
     case EM_H8_300H:
       return reloc_type == 1; /* R_H8_DIR32.  */
     case EM_IA_64:
-      return reloc_type == 0x65 /* R_IA64_SECREL32LSB.  */
-	|| reloc_type == 0x25;  /* R_IA64_DIR32LSB.  */
+      return (reloc_type == 0x64    /* R_IA64_SECREL32MSB.  */
+	      || reloc_type == 0x65 /* R_IA64_SECREL32LSB.  */
+	      || reloc_type == 0x24 /* R_IA64_DIR32MSB.  */
+	      || reloc_type == 0x25 /* R_IA64_DIR32LSB.  */);
     case EM_IP2K_OLD:
     case EM_IP2K:
       return reloc_type == 2; /* R_IP2K_32.  */
@@ -12292,7 +12357,8 @@ is_64bit_abs_reloc (unsigned int reloc_type)
     case EM_ALPHA:
       return reloc_type == 2; /* R_ALPHA_REFQUAD.  */
     case EM_IA_64:
-      return reloc_type == 0x27; /* R_IA64_DIR64LSB.  */
+      return (reloc_type == 0x26    /* R_IA64_DIR64MSB.  */
+	      || reloc_type == 0x27 /* R_IA64_DIR64LSB.  */);
     case EM_PARISC:
       return reloc_type == 80; /* R_PARISC_DIR64.  */
     case EM_PPC64:
@@ -12302,7 +12368,8 @@ is_64bit_abs_reloc (unsigned int reloc_type)
     case EM_SPARC32PLUS:
     case EM_SPARCV9:
     case EM_SPARC:
-      return reloc_type == 54; /* R_SPARC_UA64.  */
+      return reloc_type == 32 /* R_SPARC_64.  */
+	|| reloc_type == 54; /* R_SPARC_UA64.  */
     case EM_X86_64:
     case EM_L1OM:
     case EM_K1OM:
@@ -12332,7 +12399,8 @@ is_64bit_pcrel_reloc (unsigned int reloc_type)
     case EM_ALPHA:
       return reloc_type == 11; /* R_ALPHA_SREL64.  */
     case EM_IA_64:
-      return reloc_type == 0x4f; /* R_IA64_PCREL64LSB.  */
+      return (reloc_type == 0x4e    /* R_IA64_PCREL64MSB.  */
+	      || reloc_type == 0x4f /* R_IA64_PCREL64LSB.  */);
     case EM_PARISC:
       return reloc_type == 72; /* R_PARISC_PCREL64.  */
     case EM_PPC64:
@@ -12394,6 +12462,8 @@ is_16bit_abs_reloc (unsigned int reloc_type)
     case EM_CYGNUS_D10V:
     case EM_D10V:
       return reloc_type == 3; /* R_D10V_16.  */
+    case EM_FT32:
+      return reloc_type == 2; /* R_FT32_16.  */
     case EM_H8S:
     case EM_H8_300:
     case EM_H8_300H:
@@ -12770,7 +12840,7 @@ get_section_contents (Elf_Internal_Shdr * section, FILE * file)
 
   if (num_bytes == 0 || section->sh_type == SHT_NOBITS)
     {
-      printf (_("\nSection '%s' has no data to dump.\n"),
+      printf (_("Section '%s' has no data to dump.\n"),
 	      printable_section_name (section));
       return NULL;
     }
@@ -12844,10 +12914,11 @@ dump_section_as_strings (Elf_Internal_Shdr * section, FILE * file)
   unsigned char *      start;
   bfd_boolean          some_strings_shown;
 
-  real_start = start = (unsigned char *) get_section_contents (section,
-							       file);
+  real_start = start = (unsigned char *) get_section_contents (section, file);
   if (start == NULL)
-    return FALSE;
+    /* PR 21820: Do not fail if the section was empty.  */
+    return (section->sh_size == 0 || section->sh_type == SHT_NOBITS) ? TRUE : FALSE;
+
   num_bytes = section->sh_size;
 
   printf (_("\nString dump of section '%s':\n"), printable_section_name (section));
@@ -12993,7 +13064,8 @@ dump_section_as_bytes (Elf_Internal_Shdr * section,
 
   real_start = start = (unsigned char *) get_section_contents (section, file);
   if (start == NULL)
-    return FALSE;
+    /* PR 21820: Do not fail if the section was empty.  */
+    return (section->sh_size == 0 || section->sh_type == SHT_NOBITS) ? TRUE : FALSE;
 
   section_size = section->sh_size;
 
@@ -15306,7 +15378,7 @@ process_mips_specific (FILE * file)
 	      printf ("\n");
 	    }
 
-	  if (ent < end)
+	  if (data != NULL && ent < end)
 	    {
 	      printf (_(" Local entries:\n"));
 	      printf ("  %*s %10s %*s\n",
@@ -15836,7 +15908,7 @@ process_mips_specific (FILE * file)
 	}
       printf ("\n");
 
-      if (ent < local_end)
+      if (data != NULL && ent < local_end)
 	{
 	  printf (_(" Local entries:\n"));
 	  printf ("  %*s %10s %*s\n",
@@ -15852,7 +15924,7 @@ process_mips_specific (FILE * file)
 	  printf ("\n");
 	}
 
-      if (gotsym < symtabno)
+      if (data != NULL && gotsym < symtabno)
 	{
 	  int sym_width;
 
@@ -16141,6 +16213,32 @@ get_note_type (unsigned e_type)
 	return _("NT_PPC_VMX (ppc Altivec registers)");
       case NT_PPC_VSX:
 	return _("NT_PPC_VSX (ppc VSX registers)");
+      case NT_PPC_TAR:
+	return _("NT_PPC_TAR (ppc TAR register)");
+      case NT_PPC_PPR:
+	return _("NT_PPC_PPR (ppc PPR register)");
+      case NT_PPC_DSCR:
+	return _("NT_PPC_DSCR (ppc DSCR register)");
+      case NT_PPC_EBB:
+	return _("NT_PPC_EBB (ppc EBB registers)");
+      case NT_PPC_PMU:
+	return _("NT_PPC_PMU (ppc PMU registers)");
+      case NT_PPC_TM_CGPR:
+	return _("NT_PPC_TM_CGPR (ppc checkpointed GPR registers)");
+      case NT_PPC_TM_CFPR:
+	return _("NT_PPC_TM_CFPR (ppc checkpointed floating point registers)");
+      case NT_PPC_TM_CVMX:
+	return _("NT_PPC_TM_CVMX (ppc checkpointed Altivec registers)");
+      case NT_PPC_TM_CVSX:
+	return _("NT_PPC_TM_VSX (ppc checkpointed VSX registers)");
+      case NT_PPC_TM_SPR:
+	return _("NT_PPC_TM_SPR (ppc TM special purpose registers)");
+      case NT_PPC_TM_CTAR:
+	return _("NT_PPC_TM_CTAR (ppc checkpointed TAR register)");
+      case NT_PPC_TM_CPPR:
+	return _("NT_PPC_TM_CPPR (ppc checkpointed PPR register)");
+      case NT_PPC_TM_CDSCR:
+	return _("NT_PPC_TM_CDSCR (ppc checkpointed DSCR register)");
       case NT_386_TLS:
 	return _("NT_386_TLS (x86 TLS information)");
       case NT_386_IOPERM:
@@ -16227,7 +16325,11 @@ print_core_note (Elf_Internal_Note *pnote)
   unsigned char *descdata, *filenames, *descend;
 
   if (pnote->type != NT_FILE)
-    return TRUE;
+    {
+      if (do_wide)
+	printf ("\n");
+      return TRUE;
+    }
 
 #ifndef BFD64
   if (!is_32bit_elf)
@@ -16259,7 +16361,8 @@ print_core_note (Elf_Internal_Note *pnote)
   page_size = byte_get (descdata, addr_size);
   descdata += addr_size;
 
-  if (pnote->descsz < 2 * addr_size + count * 3 * addr_size)
+  if (count > ((bfd_vma) -1 - 2 * addr_size) / (3 * addr_size)
+      || pnote->descsz < 2 * addr_size + count * 3 * addr_size)
     {
       error (_("    Malformed note - too short for supplied file count\n"));
       return FALSE;
@@ -16426,15 +16529,24 @@ print_gnu_property_note (Elf_Internal_Note * pnote)
       return;
     }
 
-  while (1)
+  while (ptr < ptr_end)
     {
       unsigned int j;
-      unsigned int type = byte_get (ptr, 4);
-      unsigned int datasz = byte_get (ptr + 4, 4);
+      unsigned int type;
+      unsigned int datasz;
+
+      if ((size_t) (ptr_end - ptr) < 8)
+	{
+	  printf (_("<corrupt descsz: %#lx>\n"), pnote->descsz);
+	  break;
+	}
+
+      type = byte_get (ptr, 4);
+      datasz = byte_get (ptr + 4, 4);
 
       ptr += 8;
 
-      if ((ptr + datasz) > ptr_end)
+      if (datasz > (size_t) (ptr_end - ptr))
 	{
 	  printf (_("<corrupt type (%#x) datasz: %#x>\n"),
 		  type, datasz);
@@ -16515,19 +16627,11 @@ next:
       ptr += ((datasz + (size - 1)) & ~ (size - 1));
       if (ptr == ptr_end)
 	break;
-      else
-	{
-	  if (do_wide)
-	    printf (", ");
-	  else
-	    printf ("\n\t");
-	}
 
-      if (ptr > (ptr_end - 8))
-	{
-	  printf (_("<corrupt descsz: %#lx>\n"), pnote->descsz);
-	  break;
-	}
+      if (do_wide)
+	printf (", ");
+      else
+	printf ("\n\t");
     }
 
   printf ("\n");
@@ -17477,8 +17581,11 @@ process_note (Elf_Internal_Note *  pnote,
 
   printf ("  ");
 
-  if (pnote->type == NT_GNU_BUILD_ATTRIBUTE_OPEN
-      || pnote->type == NT_GNU_BUILD_ATTRIBUTE_FUNC)
+  if (((const_strneq (pnote->namedata, "GA")
+	&& strchr ("*$!+", pnote->namedata[2]) != NULL)
+       || strchr ("*$!+", pnote->namedata[0]) != NULL)
+      && (pnote->type == NT_GNU_BUILD_ATTRIBUTE_OPEN
+	  || pnote->type == NT_GNU_BUILD_ATTRIBUTE_FUNC))
     print_gnu_build_attribute_name (pnote);
   else
     print_symbol (-20, name);
@@ -17496,8 +17603,11 @@ process_note (Elf_Internal_Note *  pnote,
     return print_stapsdt_note (pnote);
   else if (const_strneq (pnote->namedata, "CORE"))
     return print_core_note (pnote);
-  else if (pnote->type == NT_GNU_BUILD_ATTRIBUTE_OPEN
-	   || pnote->type == NT_GNU_BUILD_ATTRIBUTE_FUNC)
+  else if (((const_strneq (pnote->namedata, "GA")
+	     && strchr ("*$!+", pnote->namedata[2]) != NULL)
+	    || strchr ("*$!+", pnote->namedata[0]) != NULL)
+	   && (pnote->type == NT_GNU_BUILD_ATTRIBUTE_OPEN
+	       || pnote->type == NT_GNU_BUILD_ATTRIBUTE_FUNC))
     return print_gnu_build_attribute_description (pnote, file);
 
   if (pnote->descsz)
@@ -17507,6 +17617,8 @@ process_note (Elf_Internal_Note *  pnote,
       printf (_("   description data: "));
       for (i = 0; i < pnote->descsz; i++)
 	printf ("%02x ", pnote->descdata[i]);
+      if (!do_wide)
+	printf ("\n");
     }
 
   if (do_wide)
@@ -17574,20 +17686,13 @@ process_notes_at (FILE *              file,
 		    (int) data_remaining);
 	      break;
 	    }
+	  data_remaining -= min_notesz;
+
 	  inote.type     = BYTE_GET (external->type);
 	  inote.namesz   = BYTE_GET (external->namesz);
 	  inote.namedata = external->name;
 	  inote.descsz   = BYTE_GET (external->descsz);
 	  inote.descdata = inote.namedata + align_power (inote.namesz, 2);
-	  /* PR 17531: file: 3443835e.  */
-	  if (inote.descdata < (char *) pnotes || inote.descdata > end)
-	    {
-	      warn (_("Corrupt note: name size is too big: (got: %lx, expected no more than: %lx)\n"),
-		    inote.namesz, (long)(end - inote.namedata));
-	      inote.descdata = inote.namedata;
-	      inote.namesz   = 0;
-	    }
-
 	  inote.descpos  = offset + (inote.descdata - (char *) pnotes);
 	  next = inote.descdata + align_power (inote.descsz, 2);
 	}
@@ -17604,6 +17709,7 @@ process_notes_at (FILE *              file,
 		    (int) data_remaining);
 	      break;
 	    }
+	  data_remaining -= min_notesz;
 
 	  vms_external = (Elf64_External_VMS_Note *) external;
 	  inote.type     = BYTE_GET (vms_external->type);
@@ -17615,12 +17721,13 @@ process_notes_at (FILE *              file,
 	  next = inote.descdata + align_power (inote.descsz, 3);
 	}
 
-      if (inote.descdata < (char *) external + min_notesz
-	  || next < (char *) external + min_notesz
-	  /* PR binutils/17531: file: id:000000,sig:11,src:006986,op:havoc,rep:4.  */
-	  || inote.namedata + inote.namesz < inote.namedata
-	  || inote.descdata + inote.descsz < inote.descdata
-	  || data_remaining < (size_t)(next - (char *) external))
+      /* PR 17531: file: 3443835e.  */
+      /* PR 17531: file: id:000000,sig:11,src:006986,op:havoc,rep:4.  */
+      if ((size_t) (inote.descdata - inote.namedata) < inote.namesz
+	  || (size_t) (inote.descdata - inote.namedata) > data_remaining
+	  || (size_t) (next - inote.descdata) < inote.descsz
+	  || ((size_t) (next - inote.descdata)
+	      > data_remaining - (size_t) (inote.descdata - inote.namedata)))
 	{
 	  warn (_("note with invalid namesz and/or descsz found at offset 0x%lx\n"),
 		(unsigned long) ((char *) external - (char *) pnotes));
@@ -17637,19 +17744,20 @@ process_notes_at (FILE *              file,
 	 namesz.  */
       if (inote.namedata[inote.namesz - 1] != '\0')
 	{
-	  temp = (char *) malloc (inote.namesz + 1);
-	  if (temp == NULL)
+	  if ((size_t) (inote.descdata - inote.namedata) == inote.namesz)
 	    {
-	      error (_("Out of memory allocating space for inote name\n"));
-	      res = FALSE;
-	      break;
+	      temp = (char *) malloc (inote.namesz + 1);
+	      if (temp == NULL)
+		{
+		  error (_("Out of memory allocating space for inote name\n"));
+		  res = FALSE;
+		  break;
+		}
+
+	      memcpy (temp, inote.namedata, inote.namesz);
+	      inote.namedata = temp;
 	    }
-
-	  memcpy (temp, inote.namedata, inote.namesz);
-	  temp[inote.namesz] = 0;
-
-	  /* warn (_("'%s' NOTE name not properly null terminated\n"), temp);  */
-	  inote.namedata = temp;
+	  inote.namedata[inote.namesz] = 0;
 	}
 
       if (! process_note (& inote, file))

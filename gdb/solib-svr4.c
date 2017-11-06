@@ -984,20 +984,14 @@ svr4_keep_data_in_core (CORE_ADDR vaddr, unsigned long size)
   return (name_lm >= vaddr && name_lm < vaddr + size);
 }
 
-/* Implement the "open_symbol_file_object" target_so_ops method.
-
-   If no open symbol file, attempt to locate and open the main symbol
-   file.  On SVR4 systems, this is the first link map entry.  If its
-   name is here, we can open it.  Useful when attaching to a process
-   without first loading its symbol file.  */
+/* See solist.h.  */
 
 static int
-open_symbol_file_object (void *from_ttyp)
+open_symbol_file_object (int from_tty)
 {
   CORE_ADDR lm, l_name;
   char *filename;
   int errcode;
-  int from_tty = *(int *)from_ttyp;
   struct link_map_offsets *lmo = svr4_fetch_link_map_offsets ();
   struct type *ptr_type = builtin_type (target_gdbarch ())->builtin_data_ptr;
   int l_name_size = TYPE_LENGTH (ptr_type);
@@ -1275,24 +1269,16 @@ static int
 svr4_current_sos_via_xfer_libraries (struct svr4_library_list *list,
 				     const char *annex)
 {
-  char *svr4_library_document;
-  int result;
-  struct cleanup *back_to;
-
   gdb_assert (annex == NULL || target_augmented_libraries_svr4_read ());
 
   /* Fetch the list of shared libraries.  */
-  svr4_library_document = target_read_stralloc (&current_target,
-						TARGET_OBJECT_LIBRARIES_SVR4,
-						annex);
+  gdb::unique_xmalloc_ptr<char> svr4_library_document
+    = target_read_stralloc (&current_target, TARGET_OBJECT_LIBRARIES_SVR4,
+			    annex);
   if (svr4_library_document == NULL)
     return 0;
 
-  back_to = make_cleanup (xfree, svr4_library_document);
-  result = svr4_parse_libraries (svr4_library_document, list);
-  do_cleanups (back_to);
-
-  return result;
+  return svr4_parse_libraries (svr4_library_document.get (), list);
 }
 
 #else
@@ -1350,21 +1336,15 @@ svr4_read_so_list (CORE_ADDR lm, CORE_ADDR prev_lm,
 
   for (; lm != 0; prev_lm = lm, lm = next_lm)
     {
-      struct so_list *newobj;
-      struct cleanup *old_chain;
       int errcode;
       char *buffer;
 
-      newobj = XCNEW (struct so_list);
-      old_chain = make_cleanup_free_so (newobj);
+      so_list_up newobj (XCNEW (struct so_list));
 
       lm_info_svr4 *li = lm_info_read (lm);
       newobj->lm_info = li;
       if (li == NULL)
-	{
-	  do_cleanups (old_chain);
-	  return 0;
-	}
+	return 0;
 
       next_lm = li->l_next;
 
@@ -1373,7 +1353,6 @@ svr4_read_so_list (CORE_ADDR lm, CORE_ADDR prev_lm,
 	  warning (_("Corrupted shared library list: %s != %s"),
 		   paddress (target_gdbarch (), prev_lm),
 		   paddress (target_gdbarch (), li->l_prev));
-	  do_cleanups (old_chain);
 	  return 0;
 	}
 
@@ -1388,7 +1367,6 @@ svr4_read_so_list (CORE_ADDR lm, CORE_ADDR prev_lm,
 
 	  first_l_name = li->l_name;
 	  info->main_lm_addr = li->lm_addr;
-	  do_cleanups (old_chain);
 	  continue;
 	}
 
@@ -1404,7 +1382,6 @@ svr4_read_so_list (CORE_ADDR lm, CORE_ADDR prev_lm,
 	  if (first_l_name == 0 || li->l_name != first_l_name)
 	    warning (_("Can't read pathname for load map: %s."),
 		     safe_strerror (errcode));
-	  do_cleanups (old_chain);
 	  continue;
 	}
 
@@ -1416,15 +1393,12 @@ svr4_read_so_list (CORE_ADDR lm, CORE_ADDR prev_lm,
       /* If this entry has no name, or its name matches the name
 	 for the main executable, don't include it in the list.  */
       if (! newobj->so_name[0] || match_main (newobj->so_name))
-	{
-	  do_cleanups (old_chain);
-	  continue;
-	}
+	continue;
 
-      discard_cleanups (old_chain);
       newobj->next = 0;
-      **link_ptr_ptr = newobj;
-      *link_ptr_ptr = &newobj->next;
+      /* Don't free it now.  */
+      **link_ptr_ptr = newobj.release ();
+      *link_ptr_ptr = &(**link_ptr_ptr)->next;
     }
 
   return 1;
@@ -2101,25 +2075,19 @@ svr4_update_solib_event_breakpoints (void)
 
 static void
 svr4_create_probe_breakpoints (struct gdbarch *gdbarch,
-			       VEC (probe_p) **probes,
+			       const std::vector<probe *> *probes,
 			       struct objfile *objfile)
 {
-  int i;
-
-  for (i = 0; i < NUM_PROBES; i++)
+  for (int i = 0; i < NUM_PROBES; i++)
     {
       enum probe_action action = probe_info[i].action;
-      struct probe *probe;
-      int ix;
 
-      for (ix = 0;
-	   VEC_iterate (probe_p, probes[i], ix, probe);
-	   ++ix)
+      for (probe *p : probes[i])
 	{
-	  CORE_ADDR address = get_probe_address (probe, objfile);
+	  CORE_ADDR address = get_probe_address (p, objfile);
 
 	  create_solib_event_breakpoint (gdbarch, address);
-	  register_solib_event_probe (probe, address, action);
+	  register_solib_event_probe (p, address, action);
 	}
     }
 
@@ -2151,13 +2119,11 @@ svr4_create_solib_event_breakpoints (struct gdbarch *gdbarch,
 
       for (with_prefix = 0; with_prefix <= 1; with_prefix++)
 	{
-	  VEC (probe_p) *probes[NUM_PROBES];
+	  std::vector<probe *> probes[NUM_PROBES];
 	  int all_probes_found = 1;
 	  int checked_can_use_probe_arguments = 0;
-	  int i;
 
-	  memset (probes, 0, sizeof (probes));
-	  for (i = 0; i < NUM_PROBES; i++)
+	  for (int i = 0; i < NUM_PROBES; i++)
 	    {
 	      const char *name = probe_info[i].name;
 	      struct probe *p;
@@ -2184,7 +2150,7 @@ svr4_create_solib_event_breakpoints (struct gdbarch *gdbarch,
 	      if (strcmp (name, "rtld_map_failed") == 0)
 		continue;
 
-	      if (VEC_empty (probe_p, probes[i]))
+	      if (probes[i].empty ())
 		{
 		  all_probes_found = 0;
 		  break;
@@ -2193,7 +2159,7 @@ svr4_create_solib_event_breakpoints (struct gdbarch *gdbarch,
 	      /* Ensure probe arguments can be evaluated.  */
 	      if (!checked_can_use_probe_arguments)
 		{
-		  p = VEC_index (probe_p, probes[i], 0);
+		  p = probes[i][0];
 		  if (!can_evaluate_probe_arguments (p))
 		    {
 		      all_probes_found = 0;
@@ -2205,9 +2171,6 @@ svr4_create_solib_event_breakpoints (struct gdbarch *gdbarch,
 
 	  if (all_probes_found)
 	    svr4_create_probe_breakpoints (gdbarch, probes, os->objfile);
-
-	  for (i = 0; i < NUM_PROBES; i++)
-	    VEC_free (probe_p, probes[i]);
 
 	  if (all_probes_found)
 	    return;
@@ -3304,8 +3267,6 @@ elf_lookup_lib_symbol (struct objfile *objfile,
 
   return lookup_global_symbol_from_objfile (objfile, name, domain);
 }
-
-extern initialize_file_ftype _initialize_svr4_solib; /* -Wmissing-prototypes */
 
 void
 _initialize_svr4_solib (void)

@@ -2880,8 +2880,8 @@ s3_bfd_score_elf_check_relocs (bfd *abfd,
             {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-                (_("%B: CALL15 reloc at 0x%lx not against global symbol"),
-                 abfd, (unsigned long) rel->r_offset);
+                (_("%B: CALL15 reloc at %#Lx not against global symbol"),
+                 abfd, rel->r_offset);
               bfd_set_error (bfd_error_bad_value);
               return FALSE;
             }
@@ -3263,7 +3263,7 @@ s3_bfd_score_elf_size_dynamic_sections (bfd *output_bfd, struct bfd_link_info *i
   if (elf_hash_table (info)->dynamic_sections_created)
     {
       /* Set the contents of the .interp section to the interpreter.  */
-      if (!bfd_link_pic (info) && !info->nointerp)
+      if (bfd_link_executable (info) && !info->nointerp)
         {
           s = bfd_get_linker_section (dynobj, ".interp");
           BFD_ASSERT (s != NULL);

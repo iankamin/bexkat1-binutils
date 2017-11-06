@@ -1285,7 +1285,7 @@ procfs_create_inferior (struct target_ops *ops, const char *exec_file,
     }
   if (!target_is_pushed (ops))
     push_target (ops);
-  target_terminal_init ();
+  target_terminal::init ();
 
   if (exec_bfd != NULL
       || (symfile_objfile != NULL && symfile_objfile->obfd != NULL))
@@ -1386,7 +1386,7 @@ procfs_store_registers (struct target_ops *ops,
       if (dev_set == -1)
 	return;
 
-      len = nto_register_area (get_regcache_arch (regcache),
+      len = nto_register_area (regcache->arch (),
 			       regno, regset, &off);
 
       if (len < 1)
@@ -1532,8 +1532,6 @@ init_procfs_targets (void)
 }
 
 #define OSTYPE_NTO 1
-
-extern initialize_file_ftype _initialize_procfs;
 
 void
 _initialize_procfs (void)

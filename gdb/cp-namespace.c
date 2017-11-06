@@ -93,8 +93,9 @@ cp_scan_for_anonymous_namespaces (const struct symbol *const symbol,
 		 anonymous namespace.  So add symbols in it to the
 		 namespace given by the previous component if there is
 		 one, or to the global namespace if there isn't.  */
+	      std::vector<const char *> excludes;
 	      add_using_directive (&local_using_directives,
-				   dest, src, NULL, NULL, NULL, 1,
+				   dest, src, NULL, NULL, excludes, 1,
 				   &objfile->objfile_obstack);
 	    }
 	  /* The "+ 2" is for the "::".  */
@@ -246,40 +247,44 @@ cp_search_static_and_baseclasses (const char *name,
 				  unsigned int prefix_len,
 				  int is_in_anonymous)
 {
-  struct block_symbol sym;
-  struct block_symbol klass_sym;
-  struct type *klass_type;
-
   /* Check for malformed input.  */
   if (prefix_len + 2 > strlen (name) || name[prefix_len + 1] != ':')
     return null_block_symbol;
 
-  /* Find the name of the class and the name of the method, variable, etc.  */
-
-  /* The class name is everything up to and including PREFIX_LEN.  */
-  std::string klass (name, prefix_len);
+  /* The class, namespace or function name is everything up to and
+     including PREFIX_LEN.  */
+  std::string scope (name, prefix_len);
 
   /* The rest of the name is everything else past the initial scope
      operator.  */
-  std::string nested (name + prefix_len + 2);
+  const char *nested = name + prefix_len + 2;
 
-  /* Lookup a class named KLASS.  If none is found, there is nothing
-     more that can be done.  KLASS could be a namespace, so always look
-     in VAR_DOMAIN.  This works for classes too because of
-     symbol_matches_domain (which should be replaced with something else,
-     but it's what we have today).  */
-  klass_sym = lookup_global_symbol (klass.c_str (), block, VAR_DOMAIN);
-  if (klass_sym.symbol == NULL)
+  /* Lookup the scope symbol.  If none is found, there is nothing more
+     that can be done.  SCOPE could be a namespace, so always look in
+     VAR_DOMAIN.  This works for classes too because of
+     symbol_matches_domain (which should be replaced with something
+     else, but it's what we have today).  */
+  block_symbol scope_sym = lookup_symbol_in_static_block (scope.c_str (),
+							  block, VAR_DOMAIN);
+  if (scope_sym.symbol == NULL)
+    scope_sym = lookup_global_symbol (scope.c_str (), block, VAR_DOMAIN);
+  if (scope_sym.symbol == NULL)
     return null_block_symbol;
-  klass_type = SYMBOL_TYPE (klass_sym.symbol);
 
-  /* Look for a symbol named NESTED in this class.
+  struct type *scope_type = SYMBOL_TYPE (scope_sym.symbol);
+
+  /* If the scope is a function/method, then look up NESTED as a local
+     static variable.  E.g., "print 'function()::static_var'".  */
+  if (TYPE_CODE (scope_type) == TYPE_CODE_FUNC
+      || TYPE_CODE (scope_type) == TYPE_CODE_METHOD)
+    return lookup_symbol (nested, SYMBOL_BLOCK_VALUE (scope_sym.symbol),
+			  VAR_DOMAIN, NULL);
+
+  /* Look for a symbol named NESTED in this class/namespace.
      The caller is assumed to have already have done a basic lookup of NAME.
      So we pass zero for BASIC_LOOKUP to cp_lookup_nested_symbol_1 here.  */
-  sym = cp_lookup_nested_symbol_1 (klass_type, nested.c_str (), name,
-				   block, domain, 0, is_in_anonymous);
-
-  return sym;
+  return cp_lookup_nested_symbol_1 (scope_type, nested, name,
+				    block, domain, 0, is_in_anonymous);
 }
 
 /* Look up NAME in the C++ namespace NAMESPACE.  Other arguments are
@@ -333,15 +338,6 @@ cp_lookup_symbol_in_namespace (const char *the_namespace, const char *name,
   return sym;
 }
 
-/* Used for cleanups to reset the "searched" flag in case of an error.  */
-
-static void
-reset_directive_searched (void *data)
-{
-  struct using_direct *direct = (struct using_direct *) data;
-  direct->searched = 0;
-}
-
 /* Search for NAME by applying all import statements belonging to
    BLOCK which are applicable in SCOPE.  If DECLARATION_ONLY the
    search is restricted to using declarations.
@@ -383,7 +379,6 @@ cp_lookup_symbol_via_imports (const char *scope,
   struct block_symbol sym;
   int len;
   int directive_match;
-  struct cleanup *searched_cleanup;
 
   sym.symbol = NULL;
   sym.block = NULL;
@@ -420,9 +415,8 @@ cp_lookup_symbol_via_imports (const char *scope,
 	{
 	  /* Mark this import as searched so that the recursive call
 	     does not search it again.  */
-	  current->searched = 1;
-	  searched_cleanup = make_cleanup (reset_directive_searched,
-					   current);
+	  scoped_restore reset_directive_searched
+	    = make_scoped_restore (&current->searched, 1);
 
 	  /* If there is an import of a single declaration, compare the
 	     imported declaration (after optional renaming by its alias)
@@ -441,9 +435,6 @@ cp_lookup_symbol_via_imports (const char *scope,
 	     search of this import is complete.  */
 	  if (declaration_only || sym.symbol != NULL || current->declaration)
 	    {
-	      current->searched = 0;
-	      discard_cleanups (searched_cleanup);
-
 	      if (sym.symbol != NULL)
 		return sym;
 
@@ -455,10 +446,7 @@ cp_lookup_symbol_via_imports (const char *scope,
 	    if (strcmp (name, *excludep) == 0)
 	      break;
 	  if (*excludep)
-	    {
-	      discard_cleanups (searched_cleanup);
-	      continue;
-	    }
+	    continue;
 
 	  if (current->alias != NULL
 	      && strcmp (name, current->alias) == 0)
@@ -479,8 +467,6 @@ cp_lookup_symbol_via_imports (const char *scope,
 						  name, block,
 						  domain, 1, 0, 0);
 	    }
-	  current->searched = 0;
-	  discard_cleanups (searched_cleanup);
 
 	  if (sym.symbol != NULL)
 	    return sym;
@@ -1073,13 +1059,10 @@ cp_lookup_transparent_type_loop (const char *name,
    obsolete.  */
 
 static void
-maintenance_cplus_namespace (char *args, int from_tty)
+maintenance_cplus_namespace (const char *args, int from_tty)
 {
   printf_unfiltered (_("The `maint namespace' command was removed.\n"));
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_cp_namespace;
 
 void
 _initialize_cp_namespace (void)

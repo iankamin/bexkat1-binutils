@@ -577,8 +577,8 @@ sh_elf_relax_section (bfd *abfd, asection *sec,
       if (laddr >= sec->size)
 	{
 	  /* xgettext:c-format */
-	  _bfd_error_handler (_("%B: 0x%lx: warning: bad R_SH_USES offset"),
-			      abfd, (unsigned long) irel->r_offset);
+	  _bfd_error_handler (_("%B: %#Lx: warning: bad R_SH_USES offset"),
+			      abfd, irel->r_offset);
 	  continue;
 	}
       insn = bfd_get_16 (abfd, contents + laddr);
@@ -589,8 +589,8 @@ sh_elf_relax_section (bfd *abfd, asection *sec,
 	{
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B: 0x%lx: warning: R_SH_USES points to unrecognized insn 0x%x"),
-	     abfd, (unsigned long) irel->r_offset, insn);
+	    (_("%B: %#Lx: warning: R_SH_USES points to unrecognized insn 0x%x"),
+	     abfd, irel->r_offset, insn);
 	  continue;
 	}
 
@@ -607,8 +607,8 @@ sh_elf_relax_section (bfd *abfd, asection *sec,
 	{
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B: 0x%lx: warning: bad R_SH_USES load offset"),
-	     abfd, (unsigned long) irel->r_offset);
+	    (_("%B: %#Lx: warning: bad R_SH_USES load offset"),
+	     abfd, irel->r_offset);
 	  continue;
 	}
 
@@ -623,8 +623,8 @@ sh_elf_relax_section (bfd *abfd, asection *sec,
 	{
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B: 0x%lx: warning: could not find expected reloc"),
-	     abfd, (unsigned long) paddr);
+	    (_("%B: %#Lx: warning: could not find expected reloc"),
+	     abfd, paddr);
 	  continue;
 	}
 
@@ -652,8 +652,8 @@ sh_elf_relax_section (bfd *abfd, asection *sec,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: 0x%lx: warning: symbol in unexpected section"),
-		 abfd, (unsigned long) paddr);
+		(_("%B: %#Lx: warning: symbol in unexpected section"),
+		 abfd, paddr);
 	      continue;
 	    }
 
@@ -782,8 +782,8 @@ sh_elf_relax_section (bfd *abfd, asection *sec,
 	{
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B: 0x%lx: warning: could not find expected COUNT reloc"),
-	     abfd, (unsigned long) paddr);
+	    (_("%B: %#Lx: warning: could not find expected COUNT reloc"),
+	     abfd, paddr);
 	  continue;
 	}
 
@@ -792,8 +792,8 @@ sh_elf_relax_section (bfd *abfd, asection *sec,
       if (irelcount->r_addend == 0)
 	{
 	  /* xgettext:c-format */
-	  _bfd_error_handler (_("%B: 0x%lx: warning: bad count"),
-			      abfd, (unsigned long) paddr);
+	  _bfd_error_handler (_("%B: %#Lx: warning: bad count"),
+			      abfd, paddr);
 	  continue;
 	}
 
@@ -913,7 +913,7 @@ sh_elf_relax_delete_bytes (bfd *abfd, asection *sec, bfd_vma addr,
 
   contents = elf_section_data (sec)->this_hdr.contents;
 
-  /* The deletion must stop at the next ALIGN reloc for an aligment
+  /* The deletion must stop at the next ALIGN reloc for an alignment
      power larger than the number of bytes we are deleting.  */
 
   irelalign = NULL;
@@ -1196,8 +1196,8 @@ sh_elf_relax_delete_bytes (bfd *abfd, asection *sec, bfd_vma addr,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: 0x%lx: fatal: reloc overflow while relaxing"),
-		 abfd, (unsigned long) irel->r_offset);
+		(_("%B: %#Lx: fatal: reloc overflow while relaxing"),
+		 abfd, irel->r_offset);
 	      bfd_set_error (bfd_error_bad_value);
 	      return FALSE;
 	    }
@@ -1567,8 +1567,8 @@ sh_elf_swap_insns (bfd *abfd, asection *sec, void *relocs,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: 0x%lx: fatal: reloc overflow while relaxing"),
-		 abfd, (unsigned long) irel->r_offset);
+		(_("%B: %#Lx: fatal: reloc overflow while relaxing"),
+		 abfd, irel->r_offset);
 	      bfd_set_error (bfd_error_bad_value);
 	      return FALSE;
 	    }
@@ -3221,7 +3221,8 @@ allocate_dynrelocs (struct elf_link_hash_entry *h, void *inf)
       if (eh->dyn_relocs != NULL
 	  && h->root.type == bfd_link_hash_undefweak)
 	{
-	  if (ELF_ST_VISIBILITY (h->other) != STV_DEFAULT)
+	  if (ELF_ST_VISIBILITY (h->other) != STV_DEFAULT
+	      || UNDEFWEAK_NO_DYNAMIC_RELOC (info, h))
 	    eh->dyn_relocs = NULL;
 
 	  /* Make sure undefined weak symbols are output as a dynamic
@@ -3299,6 +3300,9 @@ readonly_dynrelocs (struct elf_link_hash_entry *h, void *inf)
 	  struct bfd_link_info *info = (struct bfd_link_info *) inf;
 
 	  info->flags |= DF_TEXTREL;
+
+	  info->callbacks->minfo (_("%B: dynamic relocation in read-only section `%A'\n"),
+				  p->sec->owner, p->sec);
 
 	  /* Not an error, just cut short the traversal.  */
 	  return FALSE;
@@ -3399,7 +3403,11 @@ sh_elf_size_dynamic_sections (bfd *output_bfd ATTRIBUTE_UNUSED,
 		  srel = elf_section_data (p->sec)->sreloc;
 		  srel->size += p->count * sizeof (Elf32_External_Rela);
 		  if ((p->sec->output_section->flags & SEC_READONLY) != 0)
-		    info->flags |= DF_TEXTREL;
+		    {
+		      info->flags |= DF_TEXTREL;
+		      info->callbacks->minfo (_("%B: dynamic relocation in read-only section `%A'\n"),
+					      p->sec->owner, p->sec);
+		    }
 
 		  /* If we need relocations, we do not need fixups.  */
 		  if (htab->fdpic_p && !bfd_link_pic (info))
@@ -3887,6 +3895,7 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
       bfd_vma off;
       enum got_type got_type;
       const char *symname = NULL;
+      bfd_boolean resolved_to_zero;
 
       r_symndx = ELF32_R_SYM (rel->r_info);
 
@@ -3926,6 +3935,7 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
       if (! howto->partial_inplace)
 	addend = rel->r_addend;
 
+      resolved_to_zero = FALSE;
       h = NULL;
       sym = NULL;
       sec = NULL;
@@ -4006,9 +4016,9 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 		{
 		  _bfd_error_handler
 		    /* xgettext:c-format */
-		    (_("%B(%A+0x%lx): %s relocation against SEC_MERGE section"),
+		    (_("%B(%A+%#Lx): %s relocation against SEC_MERGE section"),
 		     input_bfd, input_section,
-		     (long) rel->r_offset, howto->name);
+		     rel->r_offset, howto->name);
 		  return FALSE;
 		}
 
@@ -4124,17 +4134,17 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 		{
 		  _bfd_error_handler
 		    /* xgettext:c-format */
-		    (_("%B(%A+0x%lx): unresolvable %s relocation against symbol `%s'"),
+		    (_("%B(%A+%#Lx): unresolvable %s relocation against symbol `%s'"),
 		     input_bfd,
 		     input_section,
-		     (long) rel->r_offset,
+		     rel->r_offset,
 		     howto->name,
 		     h->root.root.string);
 		  return FALSE;
 		}
 	    }
 	  else if (h->root.type == bfd_link_hash_undefweak)
-	    ;
+	    resolved_to_zero = UNDEFWEAK_NO_DYNAMIC_RELOC (info, h);
 	  else if (info->unresolved_syms_in_objects == RM_IGNORE
 		   && ELF_ST_VISIBILITY (h->other) == STV_DEFAULT)
 	    ;
@@ -4203,9 +4213,9 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 		{
 		  _bfd_error_handler
 		    /* xgettext:c-format */
-		    (_("%B: 0x%lx: fatal: unaligned branch target for relax-support relocation"),
+		    (_("%B: %#Lx: fatal: unaligned branch target for relax-support relocation"),
 		     input_section->owner,
-		     (unsigned long) rel->r_offset);
+		     rel->r_offset);
 		  bfd_set_error (bfd_error_bad_value);
 		  return FALSE;
 		}
@@ -4237,10 +4247,10 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: 0x%lx: fatal: unaligned %s relocation 0x%lx"),
+		(_("%B: %#Lx: fatal: unaligned %s relocation %#Lx"),
 		 input_section->owner,
-		 (unsigned long) rel->r_offset, howto->name,
-		 (unsigned long) relocation);
+		 rel->r_offset, howto->name,
+		 relocation);
 	      bfd_set_error (bfd_error_bad_value);
 	      return FALSE;
 	    }
@@ -4253,10 +4263,10 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: 0x%lx: fatal: unaligned %s relocation 0x%lx"),
+		(_("%B: %#Lx: fatal: unaligned %s relocation %#Lx"),
 		 input_section->owner,
-		 (unsigned long) rel->r_offset, howto->name,
-		 (unsigned long) relocation);
+		 rel->r_offset, howto->name,
+		 relocation);
 	      bfd_set_error (bfd_error_bad_value);
 	      return FALSE;
 	    }
@@ -4268,10 +4278,10 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: 0x%lx: fatal: R_SH_PSHA relocation %d not in range -32..32"),
+		(_("%B: %#Lx: fatal: R_SH_PSHA relocation %Ld not in range -32..32"),
 		 input_section->owner,
-		 (unsigned long) rel->r_offset,
-		 (unsigned long) relocation);
+		 rel->r_offset,
+		 relocation);
 	      bfd_set_error (bfd_error_bad_value);
 	      return FALSE;
 	    }
@@ -4283,10 +4293,10 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B: 0x%lx: fatal: R_SH_PSHL relocation %d not in range -32..32"),
+		(_("%B: %#Lx: fatal: R_SH_PSHL relocation %Ld not in range -32..32"),
 		 input_section->owner,
-		 (unsigned long) rel->r_offset,
-		 (unsigned long) relocation);
+		 rel->r_offset,
+		 relocation);
 	      bfd_set_error (bfd_error_bad_value);
 	      return FALSE;
 	    }
@@ -4302,7 +4312,8 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 #endif
 	  if (bfd_link_pic (info)
 	      && (h == NULL
-		  || ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+		  || (ELF_ST_VISIBILITY (h->other) == STV_DEFAULT
+		      && !resolved_to_zero)
 		  || h->root.type != bfd_link_hash_undefweak)
 	      && r_symndx != STN_UNDEF
 	      && (input_section->flags & SEC_ALLOC) != 0
@@ -4428,10 +4439,10 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 		  {
 		    _bfd_error_handler
 		      /* xgettext:c-format */
-		      (_("%B(%A+0x%lx): cannot emit fixup to `%s' in read-only section"),
+		      (_("%B(%A+%#Lx): cannot emit fixup to `%s' in read-only section"),
 		       input_bfd,
 		       input_section,
-		       (long) rel->r_offset,
+		       rel->r_offset,
 		       symname);
 		    return FALSE;
 		  }
@@ -4530,7 +4541,8 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 						     h)
 		  || (bfd_link_pic (info)
 		      && SYMBOL_REFERENCES_LOCAL (info, h))
-		  || (ELF_ST_VISIBILITY (h->other)
+		  || ((ELF_ST_VISIBILITY (h->other)
+		       || resolved_to_zero)
 		      && h->root.type == bfd_link_hash_undefweak))
 		{
 		  /* This is actually a static link, or it is a
@@ -4900,10 +4912,10 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 		  {
 		    _bfd_error_handler
 		      /* xgettext:c-format */
-		      (_("%B(%A+0x%lx): cannot emit fixup to `%s' in read-only section"),
+		      (_("%B(%A+%#Lx): cannot emit fixup to `%s' in read-only section"),
 		       input_bfd,
 		       input_section,
-		       (long) rel->r_offset,
+		       rel->r_offset,
 		       symname);
 		    return FALSE;
 		  }
@@ -5002,8 +5014,8 @@ sh_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
 	    {
 	      _bfd_error_handler
 		/* xgettext:c-format */
-		(_("%B(%A+0x%lx): %s relocation against external symbol \"%s\""),
-		 input_bfd, input_section, (long) rel->r_offset, howto->name,
+		(_("%B(%A+%#Lx): %s relocation against external symbol \"%s\""),
+		 input_bfd, input_section, rel->r_offset, howto->name,
 		 h->root.root.string);
 	      return FALSE;
 	    }
@@ -7300,6 +7312,8 @@ sh_elf_encode_eh_address (bfd *abfd,
 #define elf_backend_want_plt_sym	0
 #define elf_backend_got_header_size	12
 #define elf_backend_dtrel_excludes_plt	1
+
+#define elf_backend_linux_prpsinfo32_ugid16	TRUE
 
 #if !defined INCLUDE_SHMEDIA && !defined SH_TARGET_ALREADY_DEFINED
 

@@ -6355,7 +6355,7 @@ frv_elf_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
 
 #ifdef DEBUG
   _bfd_error_handler
-    ("old_flags = 0x%.8lx, new_flags = 0x%.8lx, init = %s, filename = %s",
+    ("old_flags = 0x%.8x, new_flags = 0x%.8x, init = %s, filename = %s",
      old_flags, new_flags, elf_flags_init (obfd) ? "yes" : "no",
      bfd_get_filename (ibfd));
 #endif
@@ -6574,9 +6574,9 @@ frv_elf_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
 	  error = TRUE;
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-	    (_("%B: uses different unknown e_flags (0x%lx) fields"
-	       " than previous modules (0x%lx)"),
-	     ibfd, (long) new_partial, (long) old_partial);
+	    (_("%B: uses different unknown e_flags (%#x) fields"
+	       " than previous modules (%#x)"),
+	     ibfd, new_partial, old_partial);
 	}
     }
 
@@ -6773,7 +6773,6 @@ elf32_frv_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
   return TRUE;
 }
 #define ELF_ARCH		bfd_arch_frv
-#define ELF_TARGET_ID		FRV_ELF_DATA
 #define ELF_MACHINE_CODE	EM_CYGNUS_FRV
 #define ELF_MAXPAGESIZE		0x1000
 
@@ -6810,8 +6809,12 @@ elf32_frv_grok_psinfo (bfd *abfd, Elf_Internal_Note *note)
 #define elf_backend_grok_prstatus	elf32_frv_grok_prstatus
 #define elf_backend_grok_psinfo		elf32_frv_grok_psinfo
 
+#define elf_backend_linux_prpsinfo32_ugid16	TRUE
+
 #include "elf32-target.h"
 
+#undef ELF_TARGET_ID
+#define ELF_TARGET_ID		FRV_ELF_DATA
 #undef ELF_MAXPAGESIZE
 #define ELF_MAXPAGESIZE		0x4000
 

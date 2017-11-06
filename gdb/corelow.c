@@ -88,8 +88,6 @@ static void add_to_thread_list (bfd *, asection *, void *);
 
 static void init_core_ops (void);
 
-void _initialize_corelow (void);
-
 static struct target_ops core_ops;
 
 /* An arbitrary identifier for the core inferior.  */
@@ -277,7 +275,6 @@ core_open (const char *arg, int from_tty)
   char *temp;
   int scratch_chan;
   int flags;
-  char *filename;
 
   target_preopen (from_tty);
   if (!arg)
@@ -289,31 +286,25 @@ core_open (const char *arg, int from_tty)
 	error (_("No core file specified."));
     }
 
-  filename = tilde_expand (arg);
-  if (!IS_ABSOLUTE_PATH (filename))
-    {
-      temp = concat (current_directory, "/",
-		     filename, (char *) NULL);
-      xfree (filename);
-      filename = temp;
-    }
-
-  old_chain = make_cleanup (xfree, filename);
+  gdb::unique_xmalloc_ptr<char> filename (tilde_expand (arg));
+  if (!IS_ABSOLUTE_PATH (filename.get ()))
+    filename.reset (concat (current_directory, "/",
+			    filename.get (), (char *) NULL));
 
   flags = O_BINARY | O_LARGEFILE;
   if (write_files)
     flags |= O_RDWR;
   else
     flags |= O_RDONLY;
-  scratch_chan = gdb_open_cloexec (filename, flags, 0);
+  scratch_chan = gdb_open_cloexec (filename.get (), flags, 0);
   if (scratch_chan < 0)
-    perror_with_name (filename);
+    perror_with_name (filename.get ());
 
-  gdb_bfd_ref_ptr temp_bfd (gdb_bfd_fopen (filename, gnutarget,
+  gdb_bfd_ref_ptr temp_bfd (gdb_bfd_fopen (filename.get (), gnutarget,
 					   write_files ? FOPEN_RUB : FOPEN_RB,
 					   scratch_chan));
   if (temp_bfd == NULL)
-    perror_with_name (filename);
+    perror_with_name (filename.get ());
 
   if (!bfd_check_format (temp_bfd.get (), bfd_core)
       && !gdb_check_format (temp_bfd.get ()))
@@ -323,13 +314,12 @@ core_open (const char *arg, int from_tty)
          thing, on error it does not free all the storage associated
          with the bfd).  */
       error (_("\"%s\" is not a core dump: %s"),
-	     filename, bfd_errmsg (bfd_get_error ()));
+	     filename.get (), bfd_errmsg (bfd_get_error ()));
     }
 
   /* Looks semi-reasonable.  Toss the old core file and work on the
      new.  */
 
-  do_cleanups (old_chain);
   unpush_target (&core_ops);
   core_bfd = temp_bfd.release ();
   old_chain = make_cleanup (core_close_cleanup, 0 /*ignore*/);
@@ -613,7 +603,7 @@ get_core_registers (struct target_ops *ops,
       return;
     }
 
-  gdbarch = get_regcache_arch (regcache);
+  gdbarch = regcache->arch ();
   if (gdbarch_iterate_over_regset_sections_p (gdbarch))
     gdbarch_iterate_over_regset_sections (gdbarch,
 					  get_core_registers_cb,
@@ -627,7 +617,7 @@ get_core_registers (struct target_ops *ops,
     }
 
   /* Mark all registers not found in the core as unavailable.  */
-  for (i = 0; i < gdbarch_num_regs (get_regcache_arch (regcache)); i++)
+  for (i = 0; i < gdbarch_num_regs (regcache->arch ()); i++)
     if (regcache_register_status (regcache, i) == REG_UNKNOWN)
       regcache_raw_supply (regcache, i, NULL);
 }

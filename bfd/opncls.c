@@ -726,25 +726,13 @@ RETURNS
 bfd_boolean
 bfd_close (bfd *abfd)
 {
-  bfd_boolean ret;
-
   if (bfd_write_p (abfd))
     {
       if (! BFD_SEND_FMT (abfd, _bfd_write_contents, (abfd)))
 	return FALSE;
     }
 
-  if (! BFD_SEND (abfd, _close_and_cleanup, (abfd)))
-    return FALSE;
-
-  ret = abfd->iovec->bclose (abfd) == 0;
-
-  if (ret)
-    _maybe_make_executable (abfd);
-
-  _bfd_delete_bfd (abfd);
-
-  return ret;
+  return bfd_close_all_done (abfd);
 }
 
 /*
@@ -774,7 +762,10 @@ bfd_close_all_done (bfd *abfd)
 {
   bfd_boolean ret;
 
-  ret = bfd_cache_close (abfd);
+  if (! BFD_SEND (abfd, _close_and_cleanup, (abfd)))
+    return FALSE;
+
+  ret = abfd->iovec->bclose (abfd) == 0;
 
   if (ret)
     _maybe_make_executable (abfd);
@@ -1209,7 +1200,7 @@ bfd_get_debug_link_info_1 (bfd *abfd, void *crc32_out)
   /* PR 17597: avoid reading off the end of the buffer.  */
   crc_offset = strnlen (name, bfd_get_section_size (sect)) + 1;
   crc_offset = (crc_offset + 3) & ~3;
-  if (crc_offset >= bfd_get_section_size (sect))
+  if (crc_offset + 4 > bfd_get_section_size (sect))
     return NULL;
 
   *crc32 = bfd_get_32 (abfd, contents + crc_offset);

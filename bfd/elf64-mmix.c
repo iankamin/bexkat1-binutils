@@ -1193,12 +1193,10 @@ mmix_elf_perform_relocation (asection *isec, reloc_howto_type *howto,
 	    _bfd_error_handler
 	      /* xgettext:c-format */
 	      (_("%B: Internal inconsistency error for value for\n\
- linker-allocated global register: linked: 0x%lx%08lx != relaxed: 0x%lx%08lx\n"),
+ linker-allocated global register: linked: %#Lx != relaxed: %#Lx"),
 	       isec->owner,
-	       (unsigned long) (value >> 32), (unsigned long) value,
-	       (unsigned long) (gregdata->reloc_request[bpo_index].value
-				>> 32),
-	       (unsigned long) gregdata->reloc_request[bpo_index].value);
+	       value,
+	       gregdata->reloc_request[bpo_index].value);
 	    bfd_set_error (bfd_error_bad_value);
 	    return bfd_reloc_overflow;
 	  }
@@ -1740,9 +1738,9 @@ mmix_final_link_relocate (reloc_howto_type *howto, asection *input_section,
 	    /* FIXME: Better error message.  */
 	    _bfd_error_handler
 	      /* xgettext:c-format */
-	      (_("%B: LOCAL directive: Register $%ld is not a local register."
-		 "  First global register is $%ld."),
-	       input_section->owner, (long) srel, (long) first_global);
+	      (_("%B: LOCAL directive: Register $%Ld is not a local register."
+		 "  First global register is $%Ld."),
+	       input_section->owner, srel, first_global);
 
 	    return bfd_reloc_overflow;
 	  }
@@ -1778,33 +1776,6 @@ mmix_elf_gc_mark_hook (asection *sec,
       }
 
   return _bfd_elf_gc_mark_hook (sec, info, rel, h, sym);
-}
-
-/* Update relocation info for a GC-excluded section.  We could supposedly
-   perform the allocation after GC, but there's no suitable hook between
-   GC (or section merge) and the point when all input sections must be
-   present.  Better to waste some memory and (perhaps) a little time.  */
-
-static bfd_boolean
-mmix_elf_gc_sweep_hook (bfd *abfd ATTRIBUTE_UNUSED,
-			struct bfd_link_info *info ATTRIBUTE_UNUSED,
-			asection *sec,
-			const Elf_Internal_Rela *relocs ATTRIBUTE_UNUSED)
-{
-  struct bpo_reloc_section_info *bpodata
-    = mmix_elf_section_data (sec)->bpo.reloc;
-  asection *allocated_gregs_section;
-
-  /* If no bpodata here, we have nothing to do.  */
-  if (bpodata == NULL)
-    return TRUE;
-
-  allocated_gregs_section = bpodata->bpo_greg_section;
-
-  mmix_elf_section_data (allocated_gregs_section)->bpo.greg->n_bpo_relocs
-    -= bpodata->n_bpo_relocs_this_section;
-
-  return TRUE;
 }
 
 /* Sort register relocs to come before expanding relocs.  */
@@ -2444,10 +2415,10 @@ _bfd_mmix_after_linker_allocation (bfd *abfd ATTRIBUTE_UNUSED,
     {
       _bfd_error_handler
 	/* xgettext:c-format */
-	(_("Internal inconsistency: remaining %u != max %u.\n\
+	(_("Internal inconsistency: remaining %lu != max %lu.\n\
   Please report this bug."),
-	 gregdata->n_remaining_bpo_relocs_this_relaxation_round,
-	 gregdata->n_bpo_relocs);
+	 (unsigned long) gregdata->n_remaining_bpo_relocs_this_relaxation_round,
+	 (unsigned long) gregdata->n_bpo_relocs);
       return FALSE;
     }
 
@@ -2712,8 +2683,21 @@ mmix_elf_relax_section (bfd *abfd,
 	  indx = ELF64_R_SYM (irel->r_info) - symtab_hdr->sh_info;
 	  h = elf_sym_hashes (abfd)[indx];
 	  BFD_ASSERT (h != NULL);
-	  if (h->root.type != bfd_link_hash_defined
-	      && h->root.type != bfd_link_hash_defweak)
+	  if (h->root.type == bfd_link_hash_undefweak)
+	    /* FIXME: for R_MMIX_PUSHJ_STUBBABLE, there are alternatives to
+	       the canonical value 0 for an unresolved weak symbol to
+	       consider: as the debug-friendly approach, resolve to "abort"
+	       (or a port-specific function), or as the space-friendly
+	       approach resolve to the next instruction (like some other
+	       ports, notably ARM and AArch64).  These alternatives require
+	       matching code in mmix_elf_perform_relocation or its caller.  */
+	    symval = 0;
+	  else if (h->root.type == bfd_link_hash_defined
+		   || h->root.type == bfd_link_hash_defweak)
+	    symval = (h->root.u.def.value
+		      + h->root.u.def.section->output_section->vma
+		      + h->root.u.def.section->output_offset);
+	  else
 	    {
 	      /* This appears to be a reference to an undefined symbol.  Just
 		 ignore it--it will be caught by the regular reloc processing.
@@ -2727,10 +2711,6 @@ mmix_elf_relax_section (bfd *abfd,
 		}
 	      continue;
 	    }
-
-	  symval = (h->root.u.def.value
-		    + h->root.u.def.section->output_section->vma
-		    + h->root.u.def.section->output_offset);
 	}
 
       if (ELF64_R_TYPE (irel->r_info) == (int) R_MMIX_PUSHJ_STUBBABLE)
@@ -2868,6 +2848,8 @@ mmix_elf_relax_section (bfd *abfd,
 	}
     }
 
+  BFD_ASSERT(pjsno == mmix_elf_section_data (sec)->pjs.n_pushj_relocs);
+
   if (internal_relocs != NULL
       && elf_section_data (sec)->relocs != internal_relocs)
     free (internal_relocs);
@@ -2916,7 +2898,6 @@ mmix_elf_relax_section (bfd *abfd,
 #define elf_info_to_howto		mmix_info_to_howto_rela
 #define elf_backend_relocate_section	mmix_elf_relocate_section
 #define elf_backend_gc_mark_hook	mmix_elf_gc_mark_hook
-#define elf_backend_gc_sweep_hook	mmix_elf_gc_sweep_hook
 
 #define elf_backend_link_output_symbol_hook \
 	mmix_elf_link_output_symbol_hook

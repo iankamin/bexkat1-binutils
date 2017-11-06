@@ -212,6 +212,10 @@ coff_link_check_archive_element (bfd *abfd,
   if (h->type != bfd_link_hash_undefined)
     return TRUE;
 
+  /* PR 22369 - Skip non COFF objects in the archive.  */
+  if (! bfd_family_coff (abfd))
+    return TRUE;
+
   /* Include this element?  */
   if (!(*info->callbacks->add_archive_element) (info, abfd, name, &abfd))
     return TRUE;
@@ -2727,7 +2731,7 @@ _bfd_coff_write_global_sym (struct bfd_hash_entry *bh, void *data)
 		      || bfd_link_relocatable (flaginfo->info)))
 		_bfd_error_handler
 		  /* xgettext: c-format */
-		  (_("%B: %A: reloc overflow: 0x%lx > 0xffff"),
+		  (_("%B: %A: reloc overflow: %#x > 0xffff"),
 		   output_bfd, sec, sec->reloc_count);
 
 	      if (sec->lineno_count > 0xffff
@@ -2735,7 +2739,7 @@ _bfd_coff_write_global_sym (struct bfd_hash_entry *bh, void *data)
 		      || bfd_link_relocatable (flaginfo->info)))
 		_bfd_error_handler
 		  /* xgettext: c-format */
-		  (_("%B: warning: %A: line number overflow: 0x%lx > 0xffff"),
+		  (_("%B: warning: %A: line number overflow: %#x > 0xffff"),
 		   output_bfd, sec, sec->lineno_count);
 
 	      auxp->x_scn.x_nreloc = sec->reloc_count;
@@ -3120,8 +3124,8 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 	case bfd_reloc_outofrange:
 	  _bfd_error_handler
 	    /* xgettext: c-format */
-	    (_("%B: bad reloc address 0x%lx in section `%A'"),
-	     input_bfd, (unsigned long) rel->r_vaddr, input_section);
+	    (_("%B: bad reloc address %#Lx in section `%A'"),
+	     input_bfd, rel->r_vaddr, input_section);
 	  return FALSE;
 	case bfd_reloc_overflow:
 	  {

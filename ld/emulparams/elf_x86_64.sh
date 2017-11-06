@@ -7,7 +7,6 @@
 SCRIPT_NAME=elf
 ELFSIZE=64
 OUTPUT_FORMAT="elf64-x86-64"
-CHECK_RELOCS_AFTER_OPEN_INPUT=yes
 NO_REL_RELOCS=yes
 TEXT_START_ADDR=0x400000
 MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
@@ -41,7 +40,7 @@ case "$target" in
   x86_64*-linux*|i[3-7]86-*-linux-*)
     case "$EMULATION_NAME" in
       *64*)
-        LIBPATH_SUFFIX=64
+	LIBPATH_SUFFIX=64
 	PARSE_AND_LIST_OPTIONS_BNDPLT='
   fprintf (file, _("\
   -z bndplt                   Always generate BND prefix in PLT entries\n"));
@@ -52,7 +51,7 @@ case "$target" in
 '
 	PARSE_AND_LIST_OPTIONS="$PARSE_AND_LIST_OPTIONS $PARSE_AND_LIST_OPTIONS_BNDPLT"
 	PARSE_AND_LIST_ARGS_CASE_Z="$PARSE_AND_LIST_ARGS_CASE_Z $PARSE_AND_LIST_ARGS_CASE_Z_BNDPLT"
-        ;;
+	;;
     esac
     ;;
   *-*-solaris2*)

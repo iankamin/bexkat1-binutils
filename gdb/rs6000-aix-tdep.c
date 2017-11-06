@@ -600,7 +600,7 @@ static CORE_ADDR
 branch_dest (struct regcache *regcache, int opcode, int instr,
 	     CORE_ADDR pc, CORE_ADDR safety)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   CORE_ADDR dest;
@@ -676,7 +676,7 @@ branch_dest (struct regcache *regcache, int opcode, int instr,
 static std::vector<CORE_ADDR>
 rs6000_software_single_step (struct regcache *regcache)
 {
-  struct gdbarch *gdbarch = get_regcache_arch (regcache);
+  struct gdbarch *gdbarch = regcache->arch ();
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int ii, insn;
   CORE_ADDR loc;
@@ -908,20 +908,16 @@ static void
 rs6000_aix_shared_library_to_xml (struct ld_info *ldi,
 				  struct obstack *obstack)
 {
-  char *p;
-
   obstack_grow_str (obstack, "<library name=\"");
-  p = xml_escape_text (ldi->filename);
-  obstack_grow_str (obstack, p);
-  xfree (p);
+  std::string p = xml_escape_text (ldi->filename);
+  obstack_grow_str (obstack, p.c_str ());
   obstack_grow_str (obstack, "\"");
 
   if (ldi->member_name[0] != '\0')
     {
       obstack_grow_str (obstack, " member=\"");
       p = xml_escape_text (ldi->member_name);
-      obstack_grow_str (obstack, p);
-      xfree (p);
+      obstack_grow_str (obstack, p.c_str ());
       obstack_grow_str (obstack, "\"");
     }
 
@@ -1088,9 +1084,6 @@ rs6000_aix_init_osabi (struct gdbarch_info info, struct gdbarch *gdbarch)
 
   set_solib_ops (gdbarch, &solib_aix_so_ops);
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_rs6000_aix_tdep;
 
 void
 _initialize_rs6000_aix_tdep (void)

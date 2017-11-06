@@ -33,7 +33,6 @@ The following people have permission to check patches into the
 repository without obtaining approval first:
 
   Nick Clifton <nickc@redhat.com> (head maintainer)
-  Richard Henderson <rth@redhat.com>
   Ian Lance Taylor <ian@airs.com>
   Jeff Law <law@redhat.com>
   Jim Wilson <wilson@tuliptree.org>
@@ -56,7 +55,7 @@ maintainers for a given domain then responsibility falls to the first
 maintainer.  The first maintainer is free to devolve that
 responsibility among the other maintainers.
 
-  ALPHA            Richard Henderson <rth@redhat.com>
+  ALPHA            Richard Henderson <rth@twiddle.net>
   AARCH64	   Richard Earnshaw <rearnsha@arm.com>
   AARCH64	   Marcus Shawcroft <marcus.shawcroft@arm.com>
   ARM		   Nick Clifton <nickc@redhat.com>
@@ -73,6 +72,7 @@ responsibility among the other maintainers.
   DLX              Nikolaos Kavvadias <nkavv@physics.auth.gr>
   DWARF2	   Jason Merrill <jason@redhat.com>
   DWARF2	   Jakub Jelinek <jakub@redhat.com>
+  dwarf-mode.el    Tom Tromey <tom@tromey.com>
   EPIPHANY	   Joern Rennecke <joern.rennecke@embecosm.com>
   FR30		   Dave Brolley <brolley@redhat.com>
   FRV		   Dave Brolley <brolley@redhat.com>
@@ -96,7 +96,7 @@ responsibility among the other maintainers.
   M68HC11 M68HC12  Stephane Carrez <Stephane.Carrez@gmail.com>
   M68HC11 M68HC12  Sean Keys <skeys@ipdatasys.com>
   M88k		   Mark Kettenis <kettenis@gnu.org>
-  MACH-O           Tristan Gingold <gingold@adacore.com>
+  MACH-O           Tristan Gingold <tgingold@free.fr>
   MAXQ		   Inderpreet Singh <inderpreetb@noida.hcltech.com>
   MEP		   Dave Brolley <brolley@redhat.com>
   METAG            Markos Chandras <markos.chandras@imgtec.com>
@@ -128,14 +128,14 @@ responsibility among the other maintainers.
   SPARC		   David S. Miller <davem@davemloft.net>
   SPARC		   Jose E. Marchesi <jose.marchesi@oracle.com>
   SPU		   Alan Modra <amodra@gmail.com>
-  TIC4X            Svein Seldal <svein@dev.seldal.com>
   TIC54X           Timothy Wall <twall@alum.mit.edu>
   TIC6X            Joseph Myers <joseph@codesourcery.com>
   TILE-Gx          Walter Lee <walt@tilera.com>
   TILEPro          Walter Lee <walt@tilera.com>
   VAX		   Matt Thomas <matt@netbsd.org>
   VAX		   Jan-Benedict Glaw <jbglaw@lug-owl.de>
-  VMS		   Tristan Gingold <gingold@adacore.com>
+  Visium	   Eric Botcazou <ebotcazou@libertysurf.fr>
+  VMS		   Tristan Gingold <tgingold@free.fr>
   x86_64	   Jan Hubicka <jh@suse.cz>
   x86_64	   Andreas Jaeger <aj@suse.de>
   x86_64	   H.J. Lu <hjl.tools@gmail.com>
@@ -156,6 +156,7 @@ goes with them.
   Mei Ligang
   Mark Mitchell
   Bernd Schmidt
+  Svein Seldal
 
       --------- CGEN Maintainers -------------
 
@@ -204,7 +205,7 @@ burden of maintaining the branch in sync with the mainline becomes too
 great).  If you are uncertain as to whether a patch is appropriate for
 the branch, ask the branch maintainer.  This is:
 
-   Tristan Gingold  <gingold@adacore.com>
+   (cf global maintainers)
 
     -------- Testsuites ---------------
 

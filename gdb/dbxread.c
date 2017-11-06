@@ -249,8 +249,6 @@ static int bincls_allocated;
 
 /* Local function prototypes.  */
 
-extern void _initialize_dbxread (void);
-
 static void read_ofile_symtab (struct objfile *, struct partial_symtab *);
 
 static void dbx_read_symtab (struct partial_symtab *self,
@@ -293,8 +291,8 @@ static void add_this_object_header_file (int);
 
 static struct partial_symtab *start_psymtab (struct objfile *, const char *,
 					     CORE_ADDR, int,
-					     struct partial_symbol **,
-					     struct partial_symbol **);
+					     std::vector<partial_symbol *> &,
+					     std::vector<partial_symbol *> &);
 
 /* Free up old header file tables.  */
 
@@ -518,7 +516,6 @@ dbx_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
 {
   bfd *sym_bfd;
   int val;
-  struct cleanup *back_to;
 
   sym_bfd = objfile->obfd;
 
@@ -533,14 +530,15 @@ dbx_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
     perror_with_name (objfile_name (objfile));
 
   /* Size the symbol table.  */
-  if (objfile->global_psymbols.size == 0 && objfile->static_psymbols.size == 0)
+  if (objfile->global_psymbols.capacity () == 0
+      && objfile->static_psymbols.capacity () == 0)
     init_psymbol_list (objfile, DBX_SYMCOUNT (objfile));
 
   symbol_size = DBX_SYMBOL_SIZE (objfile);
   symbol_table_offset = DBX_SYMTAB_OFFSET (objfile);
 
   free_pending_blocks ();
-  back_to = make_cleanup (really_free_pendings, 0);
+  scoped_free_pendings free_pending;
 
   minimal_symbol_reader reader (objfile);
 
@@ -552,8 +550,6 @@ dbx_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
      minimal symbols for this objfile.  */
 
   reader.install ();
-
-  do_cleanups (back_to);
 }
 
 /* Initialize anything that needs initializing when a completely new
@@ -1360,8 +1356,8 @@ read_dbx_symtab (minimal_symbol_reader &reader, struct objfile *objfile)
 		pst = start_psymtab (objfile,
 				     namestring, valu,
 				     first_so_symnum * symbol_size,
-				     objfile->global_psymbols.next,
-				     objfile->static_psymbols.next);
+				     objfile->global_psymbols,
+				     objfile->static_psymbols);
 		pst->dirname = dirname_nso;
 		dirname_nso = NULL;
 	      }
@@ -1999,12 +1995,12 @@ read_dbx_symtab (minimal_symbol_reader &reader, struct objfile *objfile)
 
 static struct partial_symtab *
 start_psymtab (struct objfile *objfile, const char *filename, CORE_ADDR textlow,
-	       int ldsymoff, struct partial_symbol **global_syms,
-	       struct partial_symbol **static_syms)
+	       int ldsymoff, std::vector<partial_symbol *> &global_psymbols,
+	       std::vector<partial_symbol *> &static_psymbols)
 {
   struct partial_symtab *result =
     start_psymtab_common (objfile, filename, textlow,
-			  global_syms, static_syms);
+			  global_psymbols, static_psymbols);
 
   result->read_symtab_private =
     XOBNEW (&objfile->objfile_obstack, struct symloc);
@@ -2187,7 +2183,6 @@ dbx_end_psymtab (struct objfile *objfile, struct partial_symtab *pst,
 static void
 dbx_psymtab_to_symtab_1 (struct objfile *objfile, struct partial_symtab *pst)
 {
-  struct cleanup *old_chain;
   int i;
 
   if (pst->readin)
@@ -2221,15 +2216,13 @@ dbx_psymtab_to_symtab_1 (struct objfile *objfile, struct partial_symtab *pst)
       /* Init stuff necessary for reading in symbols */
       stabsread_init ();
       buildsym_init ();
-      old_chain = make_cleanup (really_free_pendings, 0);
+      scoped_free_pendings free_pending;
       file_string_table_offset = FILE_STRING_OFFSET (pst);
       symbol_size = SYMBOL_SIZE (pst);
 
       /* Read in this file's symbols.  */
       bfd_seek (objfile->obfd, SYMBOL_OFFSET (pst), SEEK_SET);
       read_ofile_symtab (objfile, pst);
-
-      do_cleanups (old_chain);
     }
 
   pst->readin = 1;

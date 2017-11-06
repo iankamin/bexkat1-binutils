@@ -106,10 +106,6 @@ static struct type *type_long (struct parser_state *);
 
 static struct type *type_long_long (struct parser_state *);
 
-static struct type *type_float (struct parser_state *);
-
-static struct type *type_double (struct parser_state *);
-
 static struct type *type_long_double (struct parser_state *);
 
 static struct type *type_char (struct parser_state *);
@@ -128,7 +124,7 @@ static struct type *type_system_address (struct parser_state *);
       struct type *type;
     } typed_val;
     struct {
-      DOUBLEST dval;
+      gdb_byte val[16];
       struct type *type;
     } typed_val_float;
     struct type *tval;
@@ -553,10 +549,10 @@ primary	:	CHARLIT
 	;
 
 primary	:	FLOAT
-			{ write_exp_elt_opcode (pstate, OP_DOUBLE);
+			{ write_exp_elt_opcode (pstate, OP_FLOAT);
 			  write_exp_elt_type (pstate, $1.type);
-			  write_exp_elt_dblcst (pstate, $1.dval);
-			  write_exp_elt_opcode (pstate, OP_DOUBLE);
+			  write_exp_elt_floatcst (pstate, $1.val);
+			  write_exp_elt_opcode (pstate, OP_FLOAT);
 			}
 	;
 
@@ -733,10 +729,8 @@ static struct obstack temp_parse_space;
 int
 ada_parse (struct parser_state *par_state)
 {
-  int result;
-  struct cleanup *c = make_cleanup_clear_parser_state (&pstate);
-
   /* Setting up the parser state.  */
+  scoped_restore pstate_restore = make_scoped_restore (&pstate);
   gdb_assert (par_state != NULL);
   pstate = par_state;
 
@@ -745,9 +739,7 @@ ada_parse (struct parser_state *par_state)
   obstack_free (&temp_parse_space, NULL);
   obstack_init (&temp_parse_space);
 
-  result = yyparse ();
-  do_cleanups (c);
-  return result;
+  return yyparse ();
 }
 
 void
@@ -1444,18 +1436,6 @@ type_long_long (struct parser_state *par_state)
 }
 
 static struct type *
-type_float (struct parser_state *par_state)
-{
-  return parse_type (par_state)->builtin_float;
-}
-
-static struct type *
-type_double (struct parser_state *par_state)
-{
-  return parse_type (par_state)->builtin_double;
-}
-
-static struct type *
 type_long_double (struct parser_state *par_state)
 {
   return parse_type (par_state)->builtin_long_double;
@@ -1483,9 +1463,6 @@ type_system_address (struct parser_state *par_state)
 				      "system__address");
   return  type != NULL ? type : parse_type (par_state)->builtin_data_ptr;
 }
-
-/* Provide a prototype to silence -Wmissing-prototypes.  */
-extern initialize_file_ftype _initialize_ada_exp;
 
 void
 _initialize_ada_exp (void)

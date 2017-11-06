@@ -724,8 +724,8 @@ elf64_sparc_merge_private_bfd_data (bfd *ibfd, struct bfd_link_info *info)
           error = TRUE;
 	  _bfd_error_handler
 	    /* xgettext:c-format */
-            (_("%B: uses different e_flags (0x%lx) fields than previous modules (0x%lx)"),
-             ibfd, (long) new_flags, (long) old_flags);
+            (_("%B: uses different e_flags (%#x) fields than previous modules (%#x)"),
+             ibfd, new_flags, old_flags);
         }
 
       elf_elfheader (obfd)->e_flags = old_flags;
@@ -929,8 +929,6 @@ const struct elf_size_info elf64_sparc_size_info =
   _bfd_sparc_elf_object_p
 #define elf_backend_gc_mark_hook \
   _bfd_sparc_elf_gc_mark_hook
-#define elf_backend_gc_sweep_hook \
-  _bfd_sparc_elf_gc_sweep_hook
 #define elf_backend_init_index_section \
   _bfd_elf_init_1_index_section
 
