@@ -209,12 +209,34 @@ md_assemble(char *str)
 		    0,
 		    BFD_RELOC_32);
       } else {
+	// implement push as a pseudo instruction
+	// subi %sp, %sp, 4
+	// st.l <reg>, (%sp)
+	opcode = (bexkat1_opc_info_t *) hash_find(opcode_hash_control, "subi");
+	iword = (opcode->type << 28) | (opcode->opcode << 24) | opcode->size;
+	iword |= (15 & 0xf) << 20; // A
+	iword |= (15 & 0xf) << 16; // B
+	md_number_to_chars(p, iword, 4);
+	arg.X_op = O_constant;
+	arg.X_add_number = 4;
+	fix_new_exp(frag_now,
+		    (p - frag_now->fr_literal),
+		    4,
+		    &arg,
+		    0,
+		    BFD_RELOC_BEXKAT1_15);
+
+        p = frag_more(4);
+	
+	opcode = (bexkat1_opc_info_t *) hash_find(opcode_hash_control, "st.l");
+	iword = (opcode->type << 28) | (opcode->opcode << 24) | opcode->size;
 	regnum = parse_regnum(&op_end);
 	if (regnum == -1)
 	  return; 
 	while (ISSPACE(*op_end))
 	  op_end++;
 	iword |= (regnum & 0xf) << 20; // A
+	iword |= (15 & 0xf) << 16; // B
 	md_number_to_chars(p, iword, 4);
       }
     }
@@ -275,13 +297,35 @@ md_assemble(char *str)
       md_number_to_chars(p, iword, 4);
     }
     if (opcode->args == 1) {
+      // implement pop as a pseudo instruction
+      // ld.l <reg>, (%sp)
+      // addi %sp, %sp, 4
+      opcode = (bexkat1_opc_info_t *) hash_find(opcode_hash_control, "ld.l");
+      iword = (opcode->type << 28) | (opcode->opcode << 24) | opcode->size;
       regnum = parse_regnum(&op_end);
       if (regnum == -1)
 	return; 
       while (ISSPACE(*op_end))
 	op_end++;
       iword |= (regnum & 0xf) << 20; // A
+      iword |= (15 & 0xf) << 16; // B
       md_number_to_chars(p, iword, 4);
+      
+      p = frag_more(4);
+      
+      opcode = (bexkat1_opc_info_t *) hash_find(opcode_hash_control, "addi");
+      iword = (opcode->type << 28) | (opcode->opcode << 24) | opcode->size;
+      iword |= (15 & 0xf) << 20; // A
+      iword |= (15 & 0xf) << 16; // B
+      md_number_to_chars(p, iword, 4);
+      arg.X_op = O_constant;
+      arg.X_add_number = 4;
+      fix_new_exp(frag_now,
+		  (p - frag_now->fr_literal),
+		  4,
+		  &arg,
+		  0,
+		  BFD_RELOC_BEXKAT1_15);
     }
     break;
   case BEXKAT1_CMP:
