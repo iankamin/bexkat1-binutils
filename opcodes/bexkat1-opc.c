@@ -29,6 +29,7 @@ const bexkat1_opc_info_t bexkat1_opc_info[] =
     { BEXKAT1_MOV, 1, 0, 2, "mov.b" },
     { BEXKAT1_MOV, 2, 0, 2, "mov" },
     { BEXKAT1_MOV, 3, 0, 2, "mov.l" },
+    { BEXKAT1_MOV, 4, 0, 1, "movrs" },
     { BEXKAT1_INTU, 8, 0, 2, "ext" },
     { BEXKAT1_INTU, 9, 0, 2, "ext.b" },
     { BEXKAT1_INTU, 10, 0, 2, "com" },
