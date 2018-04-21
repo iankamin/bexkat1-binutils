@@ -295,6 +295,7 @@ md_assemble(char *str)
       md_number_to_chars(p, iword, 4);
       break;
     }
+    __attribute__((fallthrough));
   case BEXKAT1_CMP:
   case BEXKAT1_FPU:
   case BEXKAT1_FP:
@@ -405,7 +406,7 @@ branch:
     op_end++;
     while (ISSPACE(*op_end))
       op_end++;
-    // NO BREAK IS INTENTIONAL!
+    __attribute__((fallthrough));
   case BEXKAT1_JUMP:
     if (opcode->size) { // big address
       md_number_to_chars(p, iword, 4);
@@ -501,7 +502,7 @@ branch:
 	return;
       }
       offset = arg.X_add_number;
-      if (offset > 32768) {
+      if (offset >= 32768) {
 	as_bad(_("offset is out of range: %d\n"), offset);
 	ignore_rest_of_line();
 	return;
@@ -544,6 +545,7 @@ md_atof(int type, char *litP, int *sizeP)
     break;
   case 'd':
     prec = 4;
+    __attribute__((fallthrough));
   default:
     *sizeP = 0;
     return _("bad call to md_atof");
