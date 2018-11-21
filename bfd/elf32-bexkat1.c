@@ -402,8 +402,8 @@ bexkat1_elf_reloc (bfd *abfd ATTRIBUTE_UNUSED,
                                    error_message);
 }
 
-static void
-bexkat1_elf_info_to_howto_rela(bfd *abfd ATTRIBUTE_UNUSED,
+static bfd_boolean
+bexkat1_elf_info_to_howto_rela(bfd *abfd,
 			       arelent *cache_ptr,
 			       Elf_Internal_Rela *dst)
 {
@@ -411,9 +411,16 @@ bexkat1_elf_info_to_howto_rela(bfd *abfd ATTRIBUTE_UNUSED,
 
   r = ELF32_R_TYPE(dst->r_info);
 
-  BFD_ASSERT(r < (unsigned int) R_BEXKAT1_max);
+  if (r >= (unsigned int) R_BEXKAT1_max)
+    {
+      _bfd_error_handler (_("%pB: unsupported relocation type %#x"),
+			  abfd, r);
+      bfd_set_error (bfd_error_bad_value);
+      return FALSE;
+    }
 
   cache_ptr->howto = &bexkat1_elf_howto_table[r];
+  return TRUE;
 }
 
 static bfd_boolean
