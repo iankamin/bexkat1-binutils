@@ -136,7 +136,7 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
 	    print_reg_name((iword >> 20) & 0xf));
       break;
     }
-    __attribute__ ((fallthrough));
+    /* __attribute__ ((fallthrough)); */
   case BEXKAT1_POP:
   case BEXKAT1_JUMP:
     if (opcode->args == 0) {
@@ -167,7 +167,7 @@ int print_insn_bexkat1 (bfd_vma memaddr, struct disassemble_info* info) {
       fpr(stream, "%s %s", opcode->name, print_reg_name((iword >> 20) & 0xf));
       break;
     }
-    __attribute__ ((fallthrough));
+    /* __attribute__ ((fallthrough)); */
   case BEXKAT1_CMP:
   case BEXKAT1_FPU:
   case BEXKAT1_INTU:
