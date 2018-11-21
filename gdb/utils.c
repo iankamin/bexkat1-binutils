@@ -1,6 +1,6 @@
 /* General utility routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -68,16 +68,9 @@
 #include "job-control.h"
 #include "common/selftest.h"
 #include "common/gdb_optional.h"
-
-#if !HAVE_DECL_MALLOC
-extern PTR malloc ();		/* ARI: PTR */
-#endif
-#if !HAVE_DECL_REALLOC
-extern PTR realloc ();		/* ARI: PTR */
-#endif
-#if !HAVE_DECL_FREE
-extern void free ();
-#endif
+#include "cp-support.h"
+#include <algorithm>
+#include "common/pathstuff.h"
 
 void (*deprecated_error_begin_hook) (void);
 
@@ -137,53 +130,6 @@ show_pagination_enabled (struct ui_file *file, int from_tty,
    These are not defined in cleanups.c (nor declared in cleanups.h)
    because while they use the "cleanup API" they are not part of the
    "cleanup API".  */
-
-static void
-do_free_section_addr_info (void *arg)
-{
-  free_section_addr_info ((struct section_addr_info *) arg);
-}
-
-struct cleanup *
-make_cleanup_free_section_addr_info (struct section_addr_info *addrs)
-{
-  return make_cleanup (do_free_section_addr_info, addrs);
-}
-
-/* Helper for make_cleanup_unpush_target.  */
-
-static void
-do_unpush_target (void *arg)
-{
-  struct target_ops *ops = (struct target_ops *) arg;
-
-  unpush_target (ops);
-}
-
-/* Return a new cleanup that unpushes OPS.  */
-
-struct cleanup *
-make_cleanup_unpush_target (struct target_ops *ops)
-{
-  return make_cleanup (do_unpush_target, ops);
-}
-
-/* Helper for make_cleanup_value_free_to_mark.  */
-
-static void
-do_value_free_to_mark (void *value)
-{
-  value_free_to_mark ((struct value *) value);
-}
-
-/* Free all values allocated since MARK was obtained by value_mark
-   (except for those released) when the cleanup is run.  */
-
-struct cleanup *
-make_cleanup_value_free_to_mark (struct value *mark)
-{
-  return make_cleanup (do_value_free_to_mark, mark);
-}
 
 /* This function is useful for cleanups.
    Do
@@ -274,7 +220,7 @@ void
 dump_core (void)
 {
 #ifdef HAVE_SETRLIMIT
-  struct rlimit rlim = { RLIM_INFINITY, RLIM_INFINITY };
+  struct rlimit rlim = { (rlim_t) RLIM_INFINITY, (rlim_t) RLIM_INFINITY };
 
   setrlimit (RLIMIT_CORE, &rlim);
 #endif /* HAVE_SETRLIMIT */
@@ -302,6 +248,7 @@ can_dump_core (enum resource_limit_kind limit_kind)
     case LIMIT_CUR:
       if (rlim.rlim_cur == 0)
 	return 0;
+      /* Fall through.  */
 
     case LIMIT_MAX:
       if (rlim.rlim_max == 0)
@@ -728,8 +675,6 @@ print_sys_errmsg (const char *string, int errcode)
 void
 quit (void)
 {
-  struct ui *ui = current_ui;
-
   if (sync_quit_force_run)
     {
       sync_quit_force_run = 0;
@@ -890,7 +835,6 @@ private:
 static int ATTRIBUTE_PRINTF (1, 0)
 defaulted_query (const char *ctlstr, const char defchar, va_list args)
 {
-  int ans2;
   int retval;
   int def_value;
   char def_answer, not_def_answer;
@@ -1200,9 +1144,7 @@ parse_escape (struct gdbarch *gdbarch, const char **string_ptr)
    character. */
 
 static void
-printchar (int c, void (*do_fputs) (const char *, struct ui_file *),
-	   void (*do_fprintf) (struct ui_file *, const char *, ...)
-	   ATTRIBUTE_FPTR_PRINTF_2, struct ui_file *stream, int quoter)
+printchar (int c, do_fputc_ftype do_fputc, ui_file *stream, int quoter)
 {
   c &= 0xFF;			/* Avoid sign bit follies */
 
@@ -1210,39 +1152,45 @@ printchar (int c, void (*do_fputs) (const char *, struct ui_file *),
       (c >= 0x7F && c < 0xA0) ||	/* DEL, High controls */
       (sevenbit_strings && c >= 0x80))
     {				/* high order bit set */
+      do_fputc ('\\', stream);
+
       switch (c)
 	{
 	case '\n':
-	  do_fputs ("\\n", stream);
+	  do_fputc ('n', stream);
 	  break;
 	case '\b':
-	  do_fputs ("\\b", stream);
+	  do_fputc ('b', stream);
 	  break;
 	case '\t':
-	  do_fputs ("\\t", stream);
+	  do_fputc ('t', stream);
 	  break;
 	case '\f':
-	  do_fputs ("\\f", stream);
+	  do_fputc ('f', stream);
 	  break;
 	case '\r':
-	  do_fputs ("\\r", stream);
+	  do_fputc ('r', stream);
 	  break;
 	case '\033':
-	  do_fputs ("\\e", stream);
+	  do_fputc ('e', stream);
 	  break;
 	case '\007':
-	  do_fputs ("\\a", stream);
+	  do_fputc ('a', stream);
 	  break;
 	default:
-	  do_fprintf (stream, "\\%.3o", (unsigned int) c);
-	  break;
+	  {
+	    do_fputc ('0' + ((c >> 6) & 0x7), stream);
+	    do_fputc ('0' + ((c >> 3) & 0x7), stream);
+	    do_fputc ('0' + ((c >> 0) & 0x7), stream);
+	    break;
+	  }
 	}
     }
   else
     {
       if (quoter != 0 && (c == '\\' || c == quoter))
-	do_fputs ("\\", stream);
-      do_fprintf (stream, "%c", c);
+	do_fputc ('\\', stream);
+      do_fputc (c, stream);
     }
 }
 
@@ -1255,34 +1203,30 @@ void
 fputstr_filtered (const char *str, int quoter, struct ui_file *stream)
 {
   while (*str)
-    printchar (*str++, fputs_filtered, fprintf_filtered, stream, quoter);
+    printchar (*str++, fputc_filtered, stream, quoter);
 }
 
 void
 fputstr_unfiltered (const char *str, int quoter, struct ui_file *stream)
 {
   while (*str)
-    printchar (*str++, fputs_unfiltered, fprintf_unfiltered, stream, quoter);
+    printchar (*str++, fputc_unfiltered, stream, quoter);
 }
 
 void
 fputstrn_filtered (const char *str, int n, int quoter,
 		   struct ui_file *stream)
 {
-  int i;
-
-  for (i = 0; i < n; i++)
-    printchar (str[i], fputs_filtered, fprintf_filtered, stream, quoter);
+  for (int i = 0; i < n; i++)
+    printchar (str[i], fputc_filtered, stream, quoter);
 }
 
 void
 fputstrn_unfiltered (const char *str, int n, int quoter,
-		     struct ui_file *stream)
+		     do_fputc_ftype do_fputc, struct ui_file *stream)
 {
-  int i;
-
-  for (i = 0; i < n; i++)
-    printchar (str[i], fputs_unfiltered, fprintf_unfiltered, stream, quoter);
+  for (int i = 0; i < n; i++)
+    printchar (str[i], do_fputc, stream, quoter);
 }
 
 
@@ -1311,6 +1255,10 @@ show_chars_per_line (struct ui_file *file, int from_tty,
 
 /* Current count of lines printed on this page, chars on this line.  */
 static unsigned int lines_printed, chars_printed;
+
+/* True if pagination is disabled for just one command.  */
+
+static bool pagination_disabled_for_command;
 
 /* Buffer and start column of buffered text, for doing smarter word-
    wrapping.  When someone calls wrap_here(), we start buffering output
@@ -1459,14 +1407,14 @@ set_width (void)
 }
 
 static void
-set_width_command (char *args, int from_tty, struct cmd_list_element *c)
+set_width_command (const char *args, int from_tty, struct cmd_list_element *c)
 {
   set_screen_size ();
   set_width ();
 }
 
 static void
-set_height_command (char *args, int from_tty, struct cmd_list_element *c)
+set_height_command (const char *args, int from_tty, struct cmd_list_element *c)
 {
   set_screen_size ();
 }
@@ -1491,19 +1439,19 @@ set_screen_width_and_height (int width, int height)
 static void
 prompt_for_continue (void)
 {
-  char *ignore;
   char cont_prompt[120];
-  struct cleanup *old_chain = make_cleanup (null_cleanup, NULL);
   /* Used to add duration we waited for user to respond to
      prompt_for_continue_wait_time.  */
   using namespace std::chrono;
   steady_clock::time_point prompt_started = steady_clock::now ();
+  bool disable_pagination = pagination_disabled_for_command;
 
   if (annotation_level > 1)
     printf_unfiltered (("\n\032\032pre-prompt-for-continue\n"));
 
   strcpy (cont_prompt,
-	  "---Type <return> to continue, or q <return> to quit---");
+	  "--Type <RET> for more, q to quit, "
+	  "c to continue without paging--");
   if (annotation_level > 1)
     strcat (cont_prompt, "\n\032\032prompt-for-continue\n");
 
@@ -1516,8 +1464,7 @@ prompt_for_continue (void)
 
   /* Call gdb_readline_wrapper, not readline, in order to keep an
      event loop running.  */
-  ignore = gdb_readline_wrapper (cont_prompt);
-  make_cleanup (xfree, ignore);
+  gdb::unique_xmalloc_ptr<char> ignore (gdb_readline_wrapper (cont_prompt));
 
   /* Add time spend in this routine to prompt_for_continue_wait_time.  */
   prompt_for_continue_wait_time += steady_clock::now () - prompt_started;
@@ -1527,22 +1474,23 @@ prompt_for_continue (void)
 
   if (ignore != NULL)
     {
-      char *p = ignore;
+      char *p = ignore.get ();
 
       while (*p == ' ' || *p == '\t')
 	++p;
       if (p[0] == 'q')
 	/* Do not call quit here; there is no possibility of SIGINT.  */
 	throw_quit ("Quit");
+      if (p[0] == 'c')
+	disable_pagination = true;
     }
 
   /* Now we have to do this again, so that GDB will know that it doesn't
      need to save the ---Type <return>--- line at the top of the screen.  */
   reinitialize_more_filter ();
+  pagination_disabled_for_command = disable_pagination;
 
   dont_repeat ();		/* Forget prev cmd -- CR won't repeat it.  */
-
-  do_cleanups (old_chain);
 }
 
 /* Initialize timer to keep track of how long we waited for the user.  */
@@ -1570,6 +1518,7 @@ reinitialize_more_filter (void)
 {
   lines_printed = 0;
   chars_printed = 0;
+  pagination_disabled_for_command = false;
 }
 
 /* Indicate that if the next sequence of characters overflows the line,
@@ -1714,10 +1663,11 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
   /* Don't do any filtering if it is disabled.  */
   if (stream != gdb_stdout
       || !pagination_enabled
+      || pagination_disabled_for_command
       || batch_flag
       || (lines_per_page == UINT_MAX && chars_per_line == UINT_MAX)
       || top_level_interpreter () == NULL
-      || interp_ui_out (top_level_interpreter ())->is_mi_like_p ())
+      || top_level_interpreter ()->interp_ui_out ()->is_mi_like_p ())
     {
       fputs_unfiltered (linebuffer, stream);
       return;
@@ -1730,8 +1680,11 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
   lineptr = linebuffer;
   while (*lineptr)
     {
-      /* Possible new page.  */
-      if (filter && (lines_printed >= lines_per_page - 1))
+      /* Possible new page.  Note that PAGINATION_DISABLED_FOR_COMMAND
+	 might be set during this loop, so we must continue to check
+	 it here.  */
+      if (filter && (lines_printed >= lines_per_page - 1)
+	  && !pagination_disabled_for_command)
 	prompt_for_continue ();
 
       while (*lineptr && *lineptr != '\n')
@@ -1771,8 +1724,11 @@ fputs_maybe_filtered (const char *linebuffer, struct ui_file *stream,
 	      if (wrap_column)
 		fputc_unfiltered ('\n', stream);
 
-	      /* Possible new page.  */
-	      if (lines_printed >= lines_per_page - 1)
+	      /* Possible new page.  Note that
+		 PAGINATION_DISABLED_FOR_COMMAND might be set during
+		 this loop, so we must continue to check it here.  */
+	      if (lines_printed >= lines_per_page - 1
+		  && !pagination_disabled_for_command)
 		prompt_for_continue ();
 
 	      /* Now output indentation and wrapped string.  */
@@ -2156,40 +2112,304 @@ fprintf_symbol_filtered (struct ui_file *stream, const char *name,
     }
 }
 
-/* Modes of operation for strncmp_iw_with_mode.  */
+/* True if CH is a character that can be part of a symbol name.  I.e.,
+   either a number, a letter, or a '_'.  */
 
-enum class strncmp_iw_mode
+static bool
+valid_identifier_name_char (int ch)
 {
-  /* Work like strncmp, while ignoring whitespace.  */
-  NORMAL,
+  return (isalnum (ch) || ch == '_');
+}
 
-  /* Like NORMAL, but also apply the strcmp_iw hack.  I.e.,
-     string1=="FOO(PARAMS)" matches string2=="FOO".  */
-  MATCH_PARAMS,
-};
+/* Skip to end of token, or to END, whatever comes first.  Input is
+   assumed to be a C++ operator name.  */
 
-/* Helper for strncmp_iw and strcmp_iw.  */
+static const char *
+cp_skip_operator_token (const char *token, const char *end)
+{
+  const char *p = token;
+  while (p != end && !isspace (*p) && *p != '(')
+    {
+      if (valid_identifier_name_char (*p))
+	{
+	  while (p != end && valid_identifier_name_char (*p))
+	    p++;
+	  return p;
+	}
+      else
+	{
+	  /* Note, ordered such that among ops that share a prefix,
+	     longer comes first.  This is so that the loop below can
+	     bail on first match.  */
+	  static const char *ops[] =
+	    {
+	      "[",
+	      "]",
+	      "~",
+	      ",",
+	      "-=", "--", "->", "-",
+	      "+=", "++", "+",
+	      "*=", "*",
+	      "/=", "/",
+	      "%=", "%",
+	      "|=", "||", "|",
+	      "&=", "&&", "&",
+	      "^=", "^",
+	      "!=", "!",
+	      "<<=", "<=", "<<", "<",
+	      ">>=", ">=", ">>", ">",
+	      "==", "=",
+	    };
 
-static int
+	  for (const char *op : ops)
+	    {
+	      size_t oplen = strlen (op);
+	      size_t lencmp = std::min<size_t> (oplen, end - p);
+
+	      if (strncmp (p, op, lencmp) == 0)
+		return p + lencmp;
+	    }
+	  /* Some unidentified character.  Return it.  */
+	  return p + 1;
+	}
+    }
+
+  return p;
+}
+
+/* Advance STRING1/STRING2 past whitespace.  */
+
+static void
+skip_ws (const char *&string1, const char *&string2, const char *end_str2)
+{
+  while (isspace (*string1))
+    string1++;
+  while (string2 < end_str2 && isspace (*string2))
+    string2++;
+}
+
+/* True if STRING points at the start of a C++ operator name.  START
+   is the start of the string that STRING points to, hence when
+   reading backwards, we must not read any character before START.  */
+
+static bool
+cp_is_operator (const char *string, const char *start)
+{
+  return ((string == start
+	   || !valid_identifier_name_char (string[-1]))
+	  && strncmp (string, CP_OPERATOR_STR, CP_OPERATOR_LEN) == 0
+	  && !valid_identifier_name_char (string[CP_OPERATOR_LEN]));
+}
+
+/* If *NAME points at an ABI tag, skip it and return true.  Otherwise
+   leave *NAME unmodified and return false.  (see GCC's abi_tag
+   attribute), such names are demangled as e.g.,
+   "function[abi:cxx11]()".  */
+
+static bool
+skip_abi_tag (const char **name)
+{
+  const char *p = *name;
+
+  if (startswith (p, "[abi:"))
+    {
+      p += 5;
+
+      while (valid_identifier_name_char (*p))
+	p++;
+
+      if (*p == ']')
+	{
+	  p++;
+	  *name = p;
+	  return true;
+	}
+    }
+  return false;
+}
+
+/* See utils.h.  */
+
+int
 strncmp_iw_with_mode (const char *string1, const char *string2,
-		      size_t string2_len, strncmp_iw_mode mode)
+		      size_t string2_len, strncmp_iw_mode mode,
+		      enum language language,
+		      completion_match_for_lcd *match_for_lcd)
 {
+  const char *string1_start = string1;
   const char *end_str2 = string2 + string2_len;
+  bool skip_spaces = true;
+  bool have_colon_op = (language == language_cplus
+			|| language == language_rust
+			|| language == language_fortran);
 
   while (1)
     {
-      while (isspace (*string1))
-	string1++;
-      while (string2 < end_str2 && isspace (*string2))
-	string2++;
+      if (skip_spaces
+	  || ((isspace (*string1) && !valid_identifier_name_char (*string2))
+	      || (isspace (*string2) && !valid_identifier_name_char (*string1))))
+	{
+	  skip_ws (string1, string2, end_str2);
+	  skip_spaces = false;
+	}
+
+      /* Skip [abi:cxx11] tags in the symbol name if the lookup name
+	 doesn't include them.  E.g.:
+
+	 string1: function[abi:cxx1](int)
+	 string2: function
+
+	 string1: function[abi:cxx1](int)
+	 string2: function(int)
+
+	 string1: Struct[abi:cxx1]::function()
+	 string2: Struct::function()
+
+	 string1: function(Struct[abi:cxx1], int)
+	 string2: function(Struct, int)
+      */
+      if (string2 == end_str2
+	  || (*string2 != '[' && !valid_identifier_name_char (*string2)))
+	{
+	  const char *abi_start = string1;
+
+	  /* There can be more than one tag.  */
+	  while (*string1 == '[' && skip_abi_tag (&string1))
+	    ;
+
+	  if (match_for_lcd != NULL && abi_start != string1)
+	    match_for_lcd->mark_ignored_range (abi_start, string1);
+
+	  while (isspace (*string1))
+	    string1++;
+	}
+
       if (*string1 == '\0' || string2 == end_str2)
 	break;
+
+      /* Handle the :: operator.  */
+      if (have_colon_op && string1[0] == ':' && string1[1] == ':')
+	{
+	  if (*string2 != ':')
+	    return 1;
+
+	  string1++;
+	  string2++;
+
+	  if (string2 == end_str2)
+	    break;
+
+	  if (*string2 != ':')
+	    return 1;
+
+	  string1++;
+	  string2++;
+
+	  while (isspace (*string1))
+	    string1++;
+	  while (string2 < end_str2 && isspace (*string2))
+	    string2++;
+	  continue;
+	}
+
+      /* Handle C++ user-defined operators.  */
+      else if (language == language_cplus
+	       && *string1 == 'o')
+	{
+	  if (cp_is_operator (string1, string1_start))
+	    {
+	      /* An operator name in STRING1.  Check STRING2.  */
+	      size_t cmplen
+		= std::min<size_t> (CP_OPERATOR_LEN, end_str2 - string2);
+	      if (strncmp (string1, string2, cmplen) != 0)
+		return 1;
+
+	      string1 += cmplen;
+	      string2 += cmplen;
+
+	      if (string2 != end_str2)
+		{
+		  /* Check for "operatorX" in STRING2.  */
+		  if (valid_identifier_name_char (*string2))
+		    return 1;
+
+		  skip_ws (string1, string2, end_str2);
+		}
+
+	      /* Handle operator().  */
+	      if (*string1 == '(')
+		{
+		  if (string2 == end_str2)
+		    {
+		      if (mode == strncmp_iw_mode::NORMAL)
+			return 0;
+		      else
+			{
+			  /* Don't break for the regular return at the
+			     bottom, because "operator" should not
+			     match "operator()", since this open
+			     parentheses is not the parameter list
+			     start.  */
+			  return *string1 != '\0';
+			}
+		    }
+
+		  if (*string1 != *string2)
+		    return 1;
+
+		  string1++;
+		  string2++;
+		}
+
+	      while (1)
+		{
+		  skip_ws (string1, string2, end_str2);
+
+		  /* Skip to end of token, or to END, whatever comes
+		     first.  */
+		  const char *end_str1 = string1 + strlen (string1);
+		  const char *p1 = cp_skip_operator_token (string1, end_str1);
+		  const char *p2 = cp_skip_operator_token (string2, end_str2);
+
+		  cmplen = std::min (p1 - string1, p2 - string2);
+		  if (p2 == end_str2)
+		    {
+		      if (strncmp (string1, string2, cmplen) != 0)
+			return 1;
+		    }
+		  else
+		    {
+		      if (p1 - string1 != p2 - string2)
+			return 1;
+		      if (strncmp (string1, string2, cmplen) != 0)
+			return 1;
+		    }
+
+		  string1 += cmplen;
+		  string2 += cmplen;
+
+		  if (*string1 == '\0' || string2 == end_str2)
+		    break;
+		  if (*string1 == '(' || *string2 == '(')
+		    break;
+		}
+
+	      continue;
+	    }
+	}
+
       if (case_sensitivity == case_sensitive_on && *string1 != *string2)
 	break;
       if (case_sensitivity == case_sensitive_off
 	  && (tolower ((unsigned char) *string1)
 	      != tolower ((unsigned char) *string2)))
 	break;
+
+      /* If we see any non-whitespace, non-identifier-name character
+	 (any of "()<>*&" etc.), then skip spaces the next time
+	 around.  */
+      if (!isspace (*string1) && !valid_identifier_name_char (*string1))
+	skip_spaces = true;
 
       string1++;
       string2++;
@@ -2198,7 +2418,40 @@ strncmp_iw_with_mode (const char *string1, const char *string2,
   if (string2 == end_str2)
     {
       if (mode == strncmp_iw_mode::NORMAL)
-	return 0;
+	{
+	  /* Strip abi tag markers from the matched symbol name.
+	     Usually the ABI marker will be found on function name
+	     (automatically added because the function returns an
+	     object marked with an ABI tag).  However, it's also
+	     possible to see a marker in one of the function
+	     parameters, for example.
+
+	     string2 (lookup name):
+	       func
+	     symbol name:
+	       function(some_struct[abi:cxx11], int)
+
+	     and for completion LCD computation we want to say that
+	     the match was for:
+	       function(some_struct, int)
+	  */
+	  if (match_for_lcd != NULL)
+	    {
+	      while ((string1 = strstr (string1, "[abi:")) != NULL)
+		{
+		  const char *abi_start = string1;
+
+		  /* There can be more than one tag.  */
+		  while (skip_abi_tag (&string1) && *string1 == '[')
+		    ;
+
+		  if (abi_start != string1)
+		    match_for_lcd->mark_ignored_range (abi_start, string1);
+		}
+	    }
+
+	  return 0;
+	}
       else
 	return (*string1 != '\0' && *string1 != '(');
     }
@@ -2212,7 +2465,7 @@ int
 strncmp_iw (const char *string1, const char *string2, size_t string2_len)
 {
   return strncmp_iw_with_mode (string1, string2, string2_len,
-			       strncmp_iw_mode::NORMAL);
+			       strncmp_iw_mode::NORMAL, language_minimal);
 }
 
 /* See utils.h.  */
@@ -2221,7 +2474,7 @@ int
 strcmp_iw (const char *string1, const char *string2)
 {
   return strncmp_iw_with_mode (string1, string2, strlen (string2),
-			       strncmp_iw_mode::MATCH_PARAMS);
+			       strncmp_iw_mode::MATCH_PARAMS, language_minimal);
 }
 
 /* This is like strcmp except that it ignores whitespace and treats
@@ -2339,13 +2592,22 @@ strcmp_iw_ordered (const char *string1, const char *string2)
     }
 }
 
-/* A simple comparison function with opposite semantics to strcmp.  */
+/* See utils.h.  */
 
-int
+bool
 streq (const char *lhs, const char *rhs)
 {
   return !strcmp (lhs, rhs);
 }
+
+/* See utils.h.  */
+
+int
+streq_hash (const void *lhs, const void *rhs)
+{
+  return streq ((const char *) lhs, (const char *) rhs);
+}
+
 
 
 /*
@@ -2426,6 +2688,28 @@ When set, debugging messages will be marked with seconds and microseconds."),
 			   NULL,
 			   show_debug_timestamp,
 			   &setdebuglist, &showdebuglist);
+}
+
+/* See utils.h.  */
+
+CORE_ADDR
+address_significant (gdbarch *gdbarch, CORE_ADDR addr)
+{
+  /* Clear insignificant bits of a target address and sign extend resulting
+     address, avoiding shifts larger or equal than the width of a CORE_ADDR.
+     The local variable ADDR_BIT stops the compiler reporting a shift overflow
+     when it won't occur.  Skip updating of target address if current target
+     has not set gdbarch significant_addr_bit.  */
+  int addr_bit = gdbarch_significant_addr_bit (gdbarch);
+
+  if (addr_bit && (addr_bit < (sizeof (CORE_ADDR) * HOST_CHAR_BIT)))
+    {
+      CORE_ADDR sign = (CORE_ADDR) 1 << (addr_bit - 1);
+      addr &= ((CORE_ADDR) 1 << addr_bit) - 1;
+      addr = (addr ^ sign) - sign;
+    }
+
+  return addr;
 }
 
 const char *
@@ -2525,57 +2809,6 @@ string_to_core_addr (const char *my_string)
   return addr;
 }
 
-gdb::unique_xmalloc_ptr<char>
-gdb_realpath (const char *filename)
-{
-/* On most hosts, we rely on canonicalize_file_name to compute
-   the FILENAME's realpath.
-
-   But the situation is slightly more complex on Windows, due to some
-   versions of GCC which were reported to generate paths where
-   backlashes (the directory separator) were doubled.  For instance:
-      c:\\some\\double\\slashes\\dir
-   ... instead of ...
-      c:\some\double\slashes\dir
-   Those double-slashes were getting in the way when comparing paths,
-   for instance when trying to insert a breakpoint as follow:
-      (gdb) b c:/some/double/slashes/dir/foo.c:4
-      No source file named c:/some/double/slashes/dir/foo.c:4.
-      (gdb) b c:\some\double\slashes\dir\foo.c:4
-      No source file named c:\some\double\slashes\dir\foo.c:4.
-   To prevent this from happening, we need this function to always
-   strip those extra backslashes.  While canonicalize_file_name does
-   perform this simplification, it only works when the path is valid.
-   Since the simplification would be useful even if the path is not
-   valid (one can always set a breakpoint on a file, even if the file
-   does not exist locally), we rely instead on GetFullPathName to
-   perform the canonicalization.  */
-
-#if defined (_WIN32)
-  {
-    char buf[MAX_PATH];
-    DWORD len = GetFullPathName (filename, MAX_PATH, buf, NULL);
-
-    /* The file system is case-insensitive but case-preserving.
-       So it is important we do not lowercase the path.  Otherwise,
-       we might not be able to display the original casing in a given
-       path.  */
-    if (len > 0 && len < MAX_PATH)
-      return gdb::unique_xmalloc_ptr<char> (xstrdup (buf));
-  }
-#else
-  {
-    char *rp = canonicalize_file_name (filename);
-
-    if (rp != NULL)
-      return gdb::unique_xmalloc_ptr<char> (rp);
-  }
-#endif
-
-  /* This system is a lost cause, just dup the buffer.  */
-  return gdb::unique_xmalloc_ptr<char> (xstrdup (filename));
-}
-
 #if GDB_SELF_TEST
 
 static void
@@ -2611,90 +2844,6 @@ gdb_realpath_tests ()
 }
 
 #endif /* GDB_SELF_TEST */
-
-/* Return a copy of FILENAME, with its directory prefix canonicalized
-   by gdb_realpath.  */
-
-gdb::unique_xmalloc_ptr<char>
-gdb_realpath_keepfile (const char *filename)
-{
-  const char *base_name = lbasename (filename);
-  char *dir_name;
-  char *result;
-
-  /* Extract the basename of filename, and return immediately 
-     a copy of filename if it does not contain any directory prefix.  */
-  if (base_name == filename)
-    return gdb::unique_xmalloc_ptr<char> (xstrdup (filename));
-
-  dir_name = (char *) alloca ((size_t) (base_name - filename + 2));
-  /* Allocate enough space to store the dir_name + plus one extra
-     character sometimes needed under Windows (see below), and
-     then the closing \000 character.  */
-  strncpy (dir_name, filename, base_name - filename);
-  dir_name[base_name - filename] = '\000';
-
-#ifdef HAVE_DOS_BASED_FILE_SYSTEM
-  /* We need to be careful when filename is of the form 'd:foo', which
-     is equivalent of d:./foo, which is totally different from d:/foo.  */
-  if (strlen (dir_name) == 2 && isalpha (dir_name[0]) && dir_name[1] == ':')
-    {
-      dir_name[2] = '.';
-      dir_name[3] = '\000';
-    }
-#endif
-
-  /* Canonicalize the directory prefix, and build the resulting
-     filename.  If the dirname realpath already contains an ending
-     directory separator, avoid doubling it.  */
-  gdb::unique_xmalloc_ptr<char> path_storage = gdb_realpath (dir_name);
-  const char *real_path = path_storage.get ();
-  if (IS_DIR_SEPARATOR (real_path[strlen (real_path) - 1]))
-    result = concat (real_path, base_name, (char *) NULL);
-  else
-    result = concat (real_path, SLASH_STRING, base_name, (char *) NULL);
-
-  return gdb::unique_xmalloc_ptr<char> (result);
-}
-
-/* Return PATH in absolute form, performing tilde-expansion if necessary.
-   PATH cannot be NULL or the empty string.
-   This does not resolve symlinks however, use gdb_realpath for that.  */
-
-gdb::unique_xmalloc_ptr<char>
-gdb_abspath (const char *path)
-{
-  gdb_assert (path != NULL && path[0] != '\0');
-
-  if (path[0] == '~')
-    return gdb::unique_xmalloc_ptr<char> (tilde_expand (path));
-
-  if (IS_ABSOLUTE_PATH (path))
-    return gdb::unique_xmalloc_ptr<char> (xstrdup (path));
-
-  /* Beware the // my son, the Emacs barfs, the botch that catch...  */
-  return gdb::unique_xmalloc_ptr<char>
-    (concat (current_directory,
-	     IS_DIR_SEPARATOR (current_directory[strlen (current_directory) - 1])
-	     ? "" : SLASH_STRING,
-	     path, (char *) NULL));
-}
-
-ULONGEST
-align_up (ULONGEST v, int n)
-{
-  /* Check that N is really a power of two.  */
-  gdb_assert (n && (n & (n-1)) == 0);
-  return (v + n - 1) & -n;
-}
-
-ULONGEST
-align_down (ULONGEST v, int n)
-{
-  /* Check that N is really a power of two.  */
-  gdb_assert (n && (n & (n-1)) == 0);
-  return (v & -n);
-}
 
 /* Allocation function for the libiberty hash table which uses an
    obstack.  The obstack is passed as DATA.  */
@@ -2768,54 +2917,30 @@ compare_positive_ints (const void *ap, const void *bp)
   return * (int *) ap - * (int *) bp;
 }
 
-/* String compare function for qsort.  */
-
-int
-compare_strings (const void *arg1, const void *arg2)
-{
-  const char **s1 = (const char **) arg1;
-  const char **s2 = (const char **) arg2;
-
-  return strcmp (*s1, *s2);
-}
-
 #define AMBIGUOUS_MESS1	".\nMatching formats:"
 #define AMBIGUOUS_MESS2	\
   ".\nUse \"set gnutarget format-name\" to specify the format."
 
-const char *
+std::string
 gdb_bfd_errmsg (bfd_error_type error_tag, char **matching)
 {
-  char *ret, *retp;
-  int ret_len;
   char **p;
 
   /* Check if errmsg just need simple return.  */
   if (error_tag != bfd_error_file_ambiguously_recognized || matching == NULL)
     return bfd_errmsg (error_tag);
 
-  ret_len = strlen (bfd_errmsg (error_tag)) + strlen (AMBIGUOUS_MESS1)
-            + strlen (AMBIGUOUS_MESS2);
-  for (p = matching; *p; p++)
-    ret_len += strlen (*p) + 1;
-  ret = (char *) xmalloc (ret_len + 1);
-  retp = ret;
-  make_cleanup (xfree, ret);
-
-  strcpy (retp, bfd_errmsg (error_tag));
-  retp += strlen (retp);
-
-  strcpy (retp, AMBIGUOUS_MESS1);
-  retp += strlen (retp);
+  std::string ret (bfd_errmsg (error_tag));
+  ret += AMBIGUOUS_MESS1;
 
   for (p = matching; *p; p++)
     {
-      sprintf (retp, " %s", *p);
-      retp += strlen (retp);
+      ret += " ";
+      ret += *p;
     }
-  xfree (matching);
+  ret += AMBIGUOUS_MESS2;
 
-  strcpy (retp, AMBIGUOUS_MESS2);
+  xfree (matching);
 
   return ret;
 }
@@ -2855,30 +2980,6 @@ struct cleanup *
 make_bpstat_clear_actions_cleanup (void)
 {
   return make_cleanup (do_bpstat_clear_actions_cleanup, NULL);
-}
-
-
-/* Helper for make_cleanup_free_char_ptr_vec.  */
-
-static void
-do_free_char_ptr_vec (void *arg)
-{
-  VEC (char_ptr) *char_ptr_vec = (VEC (char_ptr) *) arg;
-
-  free_char_ptr_vec (char_ptr_vec);
-}
-
-/* Make cleanup handler calling xfree for each element of CHAR_PTR_VEC and
-   final VEC_free for CHAR_PTR_VEC itself.
-
-   You must not modify CHAR_PTR_VEC after this cleanup registration as the
-   CHAR_PTR_VEC base address may change on its updates.  Contrary to VEC_free
-   this function does not (cannot) clear the pointer.  */
-
-struct cleanup *
-make_cleanup_free_char_ptr_vec (VEC (char_ptr) *char_ptr_vec)
-{
-  return make_cleanup (do_free_char_ptr_vec, char_ptr_vec);
 }
 
 /* Substitute all occurences of string FROM by string TO in *STRINGP.  *STRINGP
@@ -3116,6 +3217,99 @@ strip_leading_path_elements (const char *path, int n)
     }
 
   return p;
+}
+
+/* See utils.h.  */
+
+void
+copy_bitwise (gdb_byte *dest, ULONGEST dest_offset,
+	      const gdb_byte *source, ULONGEST source_offset,
+	      ULONGEST nbits, int bits_big_endian)
+{
+  unsigned int buf, avail;
+
+  if (nbits == 0)
+    return;
+
+  if (bits_big_endian)
+    {
+      /* Start from the end, then work backwards.  */
+      dest_offset += nbits - 1;
+      dest += dest_offset / 8;
+      dest_offset = 7 - dest_offset % 8;
+      source_offset += nbits - 1;
+      source += source_offset / 8;
+      source_offset = 7 - source_offset % 8;
+    }
+  else
+    {
+      dest += dest_offset / 8;
+      dest_offset %= 8;
+      source += source_offset / 8;
+      source_offset %= 8;
+    }
+
+  /* Fill BUF with DEST_OFFSET bits from the destination and 8 -
+     SOURCE_OFFSET bits from the source.  */
+  buf = *(bits_big_endian ? source-- : source++) >> source_offset;
+  buf <<= dest_offset;
+  buf |= *dest & ((1 << dest_offset) - 1);
+
+  /* NBITS: bits yet to be written; AVAIL: BUF's fill level.  */
+  nbits += dest_offset;
+  avail = dest_offset + 8 - source_offset;
+
+  /* Flush 8 bits from BUF, if appropriate.  */
+  if (nbits >= 8 && avail >= 8)
+    {
+      *(bits_big_endian ? dest-- : dest++) = buf;
+      buf >>= 8;
+      avail -= 8;
+      nbits -= 8;
+    }
+
+  /* Copy the middle part.  */
+  if (nbits >= 8)
+    {
+      size_t len = nbits / 8;
+
+      /* Use a faster method for byte-aligned copies.  */
+      if (avail == 0)
+	{
+	  if (bits_big_endian)
+	    {
+	      dest -= len;
+	      source -= len;
+	      memcpy (dest + 1, source + 1, len);
+	    }
+	  else
+	    {
+	      memcpy (dest, source, len);
+	      dest += len;
+	      source += len;
+	    }
+	}
+      else
+	{
+	  while (len--)
+	    {
+	      buf |= *(bits_big_endian ? source-- : source++) << avail;
+	      *(bits_big_endian ? dest-- : dest++) = buf;
+	      buf >>= 8;
+	    }
+	}
+      nbits %= 8;
+    }
+
+  /* Write the last byte.  */
+  if (nbits)
+    {
+      if (avail < nbits)
+	buf |= *source << avail;
+
+      buf &= (1 << nbits) - 1;
+      *dest = (*dest & (~0 << nbits)) | buf;
+    }
 }
 
 void

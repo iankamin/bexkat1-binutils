@@ -1,6 +1,6 @@
 /* gdb commands implemented in Python
 
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -110,9 +110,8 @@ cmdpy_destroyer (struct cmd_list_element *self, void *context)
 
 static void
 cmdpy_function (struct cmd_list_element *command,
-		char *args_entry, int from_tty)
+		const char *args, int from_tty)
 {
-  const char *args = args_entry;
   cmdpy_object *obj = (cmdpy_object *) get_cmd_context (command);
 
   gdbpy_enter enter_py (get_current_arch (), current_language);
@@ -139,60 +138,14 @@ cmdpy_function (struct cmd_list_element *command,
       error (_("Could not convert arguments to Python string."));
     }
 
-  gdbpy_ref<> ttyobj (from_tty ? Py_True : Py_False);
-  Py_INCREF (ttyobj.get ());
+  gdbpy_ref<> ttyobj
+    = gdbpy_ref<>::new_reference (from_tty ? Py_True : Py_False);
   gdbpy_ref<> result (PyObject_CallMethodObjArgs ((PyObject *) obj, invoke_cst,
 						  argobj.get (), ttyobj.get (),
 						  NULL));
 
   if (result == NULL)
-    {
-      PyObject *ptype, *pvalue, *ptraceback;
-
-      PyErr_Fetch (&ptype, &pvalue, &ptraceback);
-
-      /* Try to fetch an error message contained within ptype, pvalue.
-	 When fetching the error message we need to make our own copy,
-	 we no longer own ptype, pvalue after the call to PyErr_Restore.  */
-
-      gdb::unique_xmalloc_ptr<char>
-	msg (gdbpy_exception_to_string (ptype, pvalue));
-
-      if (msg == NULL)
-	{
-	  /* An error occurred computing the string representation of the
-	     error message.  This is rare, but we should inform the user.  */
-	  printf_filtered (_("An error occurred in a Python command\n"
-			     "and then another occurred computing the "
-			     "error message.\n"));
-	  gdbpy_print_stack ();
-	}
-
-      /* Don't print the stack for gdb.GdbError exceptions.
-	 It is generally used to flag user errors.
-
-	 We also don't want to print "Error occurred in Python command"
-	 for user errors.  However, a missing message for gdb.GdbError
-	 exceptions is arguably a bug, so we flag it as such.  */
-
-      if (! PyErr_GivenExceptionMatches (ptype, gdbpy_gdberror_exc)
-	  || msg == NULL || *msg == '\0')
-	{
-	  PyErr_Restore (ptype, pvalue, ptraceback);
-	  gdbpy_print_stack ();
-	  if (msg != NULL && *msg != '\0')
-	    error (_("Error occurred in Python command: %s"), msg.get ());
-	  else
-	    error (_("Error occurred in Python command."));
-	}
-      else
-	{
-	  Py_XDECREF (ptype);
-	  Py_XDECREF (pvalue);
-	  Py_XDECREF (ptraceback);
-	  error ("%s", msg.get ());
-	}
-    }
+    gdbpy_handle_exception ();
 }
 
 /* Helper function for the Python command completers (both "pure"
@@ -221,10 +174,10 @@ cmdpy_function (struct cmd_list_element *command,
    and then a "complete"-completion sequentially.  Therefore, we just
    recalculate everything twice for TAB-completions.
 
-   This function returns the PyObject representing the Python method
-   call.  */
+   This function returns a reference to the PyObject representing the
+   Python method call.  */
 
-static PyObject *
+static gdbpy_ref<>
 cmdpy_completer_helper (struct cmd_list_element *command,
 			const char *text, const char *word)
 {
@@ -247,8 +200,7 @@ cmdpy_completer_helper (struct cmd_list_element *command,
   if (word == NULL)
     {
       /* "brkchars" phase.  */
-      wordobj.reset (Py_None);
-      Py_INCREF (Py_None);
+      wordobj = gdbpy_ref<>::new_reference (Py_None);
     }
   else
     {
@@ -268,7 +220,7 @@ cmdpy_completer_helper (struct cmd_list_element *command,
       PyErr_Clear ();
     }
 
-  return resultobj.release ();
+  return resultobj;
 }
 
 /* Python function called to determine the break characters of a
@@ -283,9 +235,9 @@ cmdpy_completer_handle_brkchars (struct cmd_list_element *command,
 {
   gdbpy_enter enter_py (get_current_arch (), current_language);
 
-  /* Calling our helper to obtain the PyObject of the Python
+  /* Calling our helper to obtain a reference to the PyObject of the Python
      function.  */
-  gdbpy_ref<> resultobj (cmdpy_completer_helper (command, text, word));
+  gdbpy_ref<> resultobj = cmdpy_completer_helper (command, text, word);
 
   /* Check if there was an error.  */
   if (resultobj == NULL)
@@ -326,9 +278,9 @@ cmdpy_completer (struct cmd_list_element *command,
 {
   gdbpy_enter enter_py (get_current_arch (), current_language);
 
-  /* Calling our helper to obtain the PyObject of the Python
+  /* Calling our helper to obtain a reference to the PyObject of the Python
      function.  */
-  gdbpy_ref<> resultobj (cmdpy_completer_helper (command, text, word));
+  gdbpy_ref<> resultobj = cmdpy_completer_helper (command, text, word);
 
   /* If the result object of calling the Python function is NULL, it
      means that there was an error.  In this case, just give up.  */

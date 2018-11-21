@@ -1,6 +1,6 @@
 /* GDB-specific functions for operating on agent expressions.
 
-   Copyright (C) 1998-2017 Free Software Foundation, Inc.
+   Copyright (C) 1998-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -679,7 +679,7 @@ gen_var_ref (struct agent_expr *ax, struct axs_value *value, struct symbol *var)
       break;
 
     case LOC_BLOCK:
-      ax_const_l (ax, BLOCK_START (SYMBOL_BLOCK_VALUE (var)));
+      ax_const_l (ax, BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (var)));
       value->kind = axs_rvalue;
       break;
 
@@ -1533,7 +1533,7 @@ gen_struct_ref (struct agent_expr *ax, struct axs_value *value,
   
   if (!found)
     error (_("Couldn't find member named `%s' in struct/union/class `%s'"),
-	   field, TYPE_TAG_NAME (type));
+	   field, TYPE_NAME (type));
 }
 
 static int
@@ -1629,7 +1629,7 @@ gen_namespace_elt (struct agent_expr *ax, struct axs_value *value,
 
   if (!found)
     error (_("No symbol \"%s\" in namespace \"%s\"."), 
-	   name, TYPE_TAG_NAME (curtype));
+	   name, TYPE_NAME (curtype));
 
   return found;
 }
@@ -1644,7 +1644,7 @@ static int
 gen_maybe_namespace_elt (struct agent_expr *ax, struct axs_value *value,
 			 const struct type *curtype, char *name)
 {
-  const char *namespace_name = TYPE_TAG_NAME (curtype);
+  const char *namespace_name = TYPE_NAME (curtype);
   struct block_symbol sym;
 
   sym = cp_lookup_symbol_namespace (namespace_name, name,
@@ -2036,8 +2036,7 @@ gen_expr (struct expression *exp, union exp_element **pc,
 	  internal_error (__FILE__, __LINE__,
 			  _("Register $%s not available"), name);
 	/* No support for tracing user registers yet.  */
-	if (reg >= gdbarch_num_regs (ax->gdbarch)
-	    + gdbarch_num_pseudo_regs (ax->gdbarch))
+	if (reg >= gdbarch_num_cooked_regs (ax->gdbarch))
 	  error (_("'%s' is a user-register; "
 		   "GDB cannot yet trace user-register contents."),
 		 name);
@@ -2541,7 +2540,6 @@ agent_expr_up
 gen_printf (CORE_ADDR scope, struct gdbarch *gdbarch,
 	    CORE_ADDR function, LONGEST channel,
 	    const char *format, int fmtlen,
-	    struct format_piece *frags,
 	    int nargs, struct expression **exprs)
 {
   agent_expr_up ax (new agent_expr (gdbarch, scope));
@@ -2638,7 +2636,8 @@ agent_command_1 (const char *exp, int eval)
 
       exp = skip_spaces (exp);
 
-      event_location_up location = new_linespec_location (&exp);
+      event_location_up location
+	= new_linespec_location (&exp, symbol_name_match_type::WILD);
       decode_line_full (location.get (), DECODE_LINE_FUNFIRSTLINE, NULL,
 			(struct symtab *) NULL, 0, &canonical,
 			NULL, NULL);
@@ -2680,12 +2679,8 @@ agent_eval_command (const char *exp, int from_tty)
 static void
 maint_agent_printf_command (const char *cmdrest, int from_tty)
 {
-  struct cleanup *old_chain = 0;
-  struct expression *argvec[100];
   struct frame_info *fi = get_current_frame ();	/* need current scope */
   const char *format_start, *format_end;
-  struct format_piece *fpieces;
-  int nargs;
 
   /* We don't deal with overlay debugging at the moment.  We need to
      think more carefully about this.  If you copy this code into
@@ -2704,9 +2699,7 @@ maint_agent_printf_command (const char *cmdrest, int from_tty)
 
   format_start = cmdrest;
 
-  fpieces = parse_format_string (&cmdrest);
-
-  old_chain = make_cleanup (free_format_pieces_cleanup, &fpieces);
+  format_pieces fpieces (&cmdrest);
 
   format_end = cmdrest;
 
@@ -2722,15 +2715,14 @@ maint_agent_printf_command (const char *cmdrest, int from_tty)
     cmdrest++;
   cmdrest = skip_spaces (cmdrest);
 
-  nargs = 0;
+  std::vector<struct expression *> argvec;
   while (*cmdrest != '\0')
     {
       const char *cmd1;
 
       cmd1 = cmdrest;
       expression_up expr = parse_exp_1 (&cmd1, 0, (struct block *) 0, 1);
-      argvec[nargs] = expr.release ();
-      ++nargs;
+      argvec.push_back (expr.release ());
       cmdrest = cmd1;
       if (*cmdrest == ',')
 	++cmdrest;
@@ -2741,14 +2733,13 @@ maint_agent_printf_command (const char *cmdrest, int from_tty)
   agent_expr_up agent = gen_printf (get_frame_pc (fi), get_current_arch (),
 				    0, 0,
 				    format_start, format_end - format_start,
-				    fpieces, nargs, argvec);
+				    argvec.size (), argvec.data ());
   ax_reqs (agent.get ());
   ax_print (gdb_stdout, agent.get ());
 
   /* It would be nice to call ax_reqs here to gather some general info
      about the expression, and then print out the result.  */
 
-  do_cleanups (old_chain);
   dont_repeat ();
 }
 

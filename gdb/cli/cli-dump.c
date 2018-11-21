@@ -1,6 +1,6 @@
 /* Dump-to-file commands, for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2018 Free Software Foundation, Inc.
 
    Contributed by Red Hat.
 
@@ -55,7 +55,6 @@ static gdb::unique_xmalloc_ptr<char>
 scan_filename (const char **cmd, const char *defname)
 {
   gdb::unique_xmalloc_ptr<char> filename;
-  char *fullname;
 
   /* FIXME: Need to get the ``/a(ppend)'' flag from somewhere.  */
 
@@ -344,7 +343,7 @@ struct dump_context
 };
 
 static void
-call_dump_func (struct cmd_list_element *c, char *args, int from_tty)
+call_dump_func (struct cmd_list_element *c, const char *args, int from_tty)
 {
   struct dump_context *d = (struct dump_context *) get_cmd_context (c);
 
@@ -469,6 +468,9 @@ restore_binary_file (const char *filename, struct callback_data *data)
   gdb_file_up file = gdb_fopen_cloexec (filename, FOPEN_RB);
   long len;
 
+  if (file == NULL)
+    error (_("Failed to open %s: %s"), filename, safe_strerror (errno));
+
   /* Get the file size for reading.  */
   if (fseek (file.get (), 0, SEEK_END) == 0)
     {
@@ -513,12 +515,10 @@ restore_binary_file (const char *filename, struct callback_data *data)
 }
 
 static void
-restore_command (char *args_in, int from_tty)
+restore_command (const char *args, int from_tty)
 {
   struct callback_data data;
-  bfd *ibfd;
   int binary_flag = 0;
-  const char *args = args_in;
 
   if (!target_has_execution)
     noprocess ();

@@ -1,6 +1,6 @@
 /* Output generating routines for GDB CLI.
 
-   Copyright (C) 1999-2017 Free Software Foundation, Inc.
+   Copyright (C) 1999-2018 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions.
    Written by Fernando Nasser for Cygnus.
@@ -94,14 +94,12 @@ void
 cli_ui_out::do_field_int (int fldno, int width, ui_align alignment,
 			  const char *fldname, int value)
 {
-  char buffer[20];	/* FIXME: how many chars long a %d can become? */
-
   if (m_suppress_output)
     return;
 
-  xsnprintf (buffer, sizeof (buffer), "%d", value);
+  std::string str = string_printf ("%d", value);
 
-  do_field_string (fldno, width, alignment, fldname, buffer);
+  do_field_string (fldno, width, alignment, fldname, str.c_str ());
 }
 
 /* used to omit a field */
@@ -156,7 +154,7 @@ cli_ui_out::do_field_string (int fldno, int width, ui_align align,
     spaces (before);
 
   if (string)
-    out_field_fmt (fldno, fldname, "%s", string);
+    fputs_filtered (string, m_streams.back ());
 
   if (after)
     spaces (after);
@@ -165,7 +163,7 @@ cli_ui_out::do_field_string (int fldno, int width, ui_align align,
     field_separator ();
 }
 
-/* This is the only field function that does not align.  */
+/* Output field containing ARGS using printf formatting in FORMAT.  */
 
 void
 cli_ui_out::do_field_fmt (int fldno, int width, ui_align align,
@@ -175,10 +173,9 @@ cli_ui_out::do_field_fmt (int fldno, int width, ui_align align,
   if (m_suppress_output)
     return;
 
-  vfprintf_filtered (m_streams.back (), format, args);
+  std::string str = string_vprintf (format, args);
 
-  if (align != ui_noalign)
-    field_separator ();
+  do_field_string (fldno, width, align, fldname, str.c_str ());
 }
 
 void
@@ -237,22 +234,6 @@ cli_ui_out::do_redirect (ui_file *outstream)
 }
 
 /* local functions */
-
-/* Like cli_ui_out::do_field_fmt, but takes a variable number of args
-   and makes a va_list and does not insert a separator.  */
-
-/* VARARGS */
-void
-cli_ui_out::out_field_fmt (int fldno, const char *fldname,
-			   const char *format, ...)
-{
-  va_list args;
-
-  va_start (args, format);
-  vfprintf_filtered (m_streams.back (), format, args);
-
-  va_end (args);
-}
 
 void
 cli_ui_out::field_separator ()

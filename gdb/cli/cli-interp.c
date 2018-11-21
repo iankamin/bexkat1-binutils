@@ -1,6 +1,6 @@
 /* CLI Definitions for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -26,9 +26,10 @@
 #include "top.h"		/* for "execute_command" */
 #include "event-top.h"
 #include "infrun.h"
-#include "observer.h"
+#include "observable.h"
 #include "gdbthread.h"
 #include "thread-fsm.h"
+#include "inferior.h"
 
 cli_interp_base::cli_interp_base (const char *name)
   : interp (name)
@@ -43,6 +44,7 @@ class cli_interp final : public cli_interp_base
 {
  public:
   explicit cli_interp (const char *name);
+  ~cli_interp ();
 
   void init (bool top_level) override;
   void resume () override;
@@ -61,6 +63,11 @@ cli_interp::cli_interp (const char *name)
   this->cli_uiout = cli_out_new (gdb_stdout);
 }
 
+cli_interp::~cli_interp ()
+{
+  delete cli_uiout;
+}
+
 /* Suppress notification struct.  */
 struct cli_suppress_notification cli_suppress_notification =
   {
@@ -73,14 +80,12 @@ struct cli_suppress_notification cli_suppress_notification =
 static struct cli_interp *
 as_cli_interp (struct interp *interp)
 {
-  if (strcmp (interp_name (interp), INTERP_CONSOLE) == 0)
-    return (struct cli_interp *) interp;
-  return NULL;
+  return dynamic_cast<cli_interp *> (interp);
 }
 
 /* Longjmp-safe wrapper for "execute_command".  */
 static struct gdb_exception safe_execute_command (struct ui_out *uiout,
-						  char *command, 
+						  const char *command, 
 						  int from_tty);
 
 /* See cli-interp.h.
@@ -332,11 +337,6 @@ cli_interp::exec (const char *command_str)
   struct ui_file *old_stream;
   struct gdb_exception result;
 
-  /* FIXME: cagney/2003-02-01: Need to const char *propogate
-     safe_execute_command.  */
-  char *str = (char *) alloca (strlen (command_str) + 1);
-  strcpy (str, command_str);
-
   /* gdb_stdout could change between the time cli_uiout was
      initialized and now.  Since we're probably using a different
      interpreter which has a new ui_file for gdb_stdout, use that one
@@ -345,7 +345,7 @@ cli_interp::exec (const char *command_str)
      It is important that it gets reset everytime, since the user
      could set gdb to use a different interpreter.  */
   old_stream = cli->cli_uiout->set_stream (gdb_stdout);
-  result = safe_execute_command (cli->cli_uiout, str, 1);
+  result = safe_execute_command (cli->cli_uiout, command_str, 1);
   cli->cli_uiout->set_stream (old_stream);
   return result;
 }
@@ -357,14 +357,14 @@ cli_interp_base::supports_command_editing ()
 }
 
 static struct gdb_exception
-safe_execute_command (struct ui_out *command_uiout, char *command, int from_tty)
+safe_execute_command (struct ui_out *command_uiout, const char *command,
+		      int from_tty)
 {
   struct gdb_exception e = exception_none;
-  struct ui_out *saved_uiout;
 
   /* Save and override the global ``struct ui_out'' builder.  */
-  saved_uiout = current_uiout;
-  current_uiout = command_uiout;
+  scoped_restore saved_uiout = make_scoped_restore (&current_uiout,
+						    command_uiout);
 
   TRY
     {
@@ -375,9 +375,6 @@ safe_execute_command (struct ui_out *command_uiout, char *command, int from_tty)
       e = exception;
     }
   END_CATCH
-
-  /* Restore the global builder.  */
-  current_uiout = saved_uiout;
 
   /* FIXME: cagney/2005-01-13: This shouldn't be needed.  Instead the
      caller should print the exception.  */
@@ -465,14 +462,14 @@ _initialize_cli_interp (void)
   interp_factory_register (INTERP_CONSOLE, cli_interp_factory);
 
   /* If changing this, remember to update tui-interp.c as well.  */
-  observer_attach_normal_stop (cli_on_normal_stop);
-  observer_attach_end_stepping_range (cli_on_end_stepping_range);
-  observer_attach_signal_received (cli_on_signal_received);
-  observer_attach_signal_exited (cli_on_signal_exited);
-  observer_attach_exited (cli_on_exited);
-  observer_attach_no_history (cli_on_no_history);
-  observer_attach_sync_execution_done (cli_on_sync_execution_done);
-  observer_attach_command_error (cli_on_command_error);
-  observer_attach_user_selected_context_changed
+  gdb::observers::normal_stop.attach (cli_on_normal_stop);
+  gdb::observers::end_stepping_range.attach (cli_on_end_stepping_range);
+  gdb::observers::signal_received.attach (cli_on_signal_received);
+  gdb::observers::signal_exited.attach (cli_on_signal_exited);
+  gdb::observers::exited.attach (cli_on_exited);
+  gdb::observers::no_history.attach (cli_on_no_history);
+  gdb::observers::sync_execution_done.attach (cli_on_sync_execution_done);
+  gdb::observers::command_error.attach (cli_on_command_error);
+  gdb::observers::user_selected_context_changed.attach
     (cli_on_user_selected_context_changed);
 }

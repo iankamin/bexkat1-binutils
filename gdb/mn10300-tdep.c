@@ -1,6 +1,6 @@
 /* Target-dependent code for the Matsushita MN10300 for GDB, the GNU debugger.
 
-   Copyright (C) 1996-2017 Free Software Foundation, Inc.
+   Copyright (C) 1996-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -182,13 +182,12 @@ mn10300_store_return_value (struct gdbarch *gdbarch, struct type *type,
   regsz = register_size (gdbarch, reg);
 
   if (len <= regsz)
-    regcache_raw_write_part (regcache, reg, 0, len, valbuf);
+    regcache->raw_write_part (reg, 0, len, valbuf);
   else if (len <= 2 * regsz)
     {
-      regcache_raw_write (regcache, reg, valbuf);
+      regcache->raw_write (reg, valbuf);
       gdb_assert (regsz == register_size (gdbarch, reg + 1));
-      regcache_raw_write_part (regcache, reg+1, 0,
-			       len - regsz, valbuf + regsz);
+      regcache->raw_write_part (reg + 1, 0, len - regsz, valbuf + regsz);
     }
   else
     internal_error (__FILE__, __LINE__,
@@ -212,15 +211,15 @@ mn10300_extract_return_value (struct gdbarch *gdbarch, struct type *type,
   gdb_assert (regsz <= MN10300_MAX_REGISTER_SIZE);
   if (len <= regsz)
     {
-      regcache_raw_read (regcache, reg, buf);
+      regcache->raw_read (reg, buf);
       memcpy (valbuf, buf, len);
     }
   else if (len <= 2 * regsz)
     {
-      regcache_raw_read (regcache, reg, buf);
+      regcache->raw_read (reg, buf);
       memcpy (valbuf, buf, regsz);
       gdb_assert (regsz == register_size (gdbarch, reg + 1));
-      regcache_raw_read (regcache, reg + 1, buf);
+      regcache->raw_read (reg + 1, buf);
       memcpy ((char *) valbuf + regsz, buf, len - regsz);
     }
   else
@@ -305,20 +304,6 @@ static struct type *
 mn10300_register_type (struct gdbarch *gdbarch, int reg)
 {
   return builtin_type (gdbarch)->builtin_int;
-}
-
-static CORE_ADDR
-mn10300_read_pc (struct regcache *regcache)
-{
-  ULONGEST val;
-  regcache_cooked_read_unsigned (regcache, E_PC_REGNUM, &val);
-  return val;
-}
-
-static void
-mn10300_write_pc (struct regcache *regcache, CORE_ADDR val)
-{
-  regcache_cooked_write_unsigned (regcache, E_PC_REGNUM, val);
 }
 
 /* The breakpoint instruction must be the same size as the smallest
@@ -1206,7 +1191,7 @@ mn10300_push_dummy_call (struct gdbarch *gdbarch,
 			 CORE_ADDR bp_addr, 
 			 int nargs, struct value **args,
 			 CORE_ADDR sp, 
-			 int struct_return,
+			 function_call_return_method return_method,
 			 CORE_ADDR struct_addr)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -1226,7 +1211,7 @@ mn10300_push_dummy_call (struct gdbarch *gdbarch,
 
      XXX This doesn't appear to handle pass-by-invisible reference
      arguments.  */
-  regs_used = struct_return ? 1 : 0;
+  regs_used = (return_method == return_method_struct) ? 1 : 0;
   for (len = 0, argnum = 0; argnum < nargs; argnum++)
     {
       arg_len = (TYPE_LENGTH (value_type (args[argnum])) + 3) & ~3;
@@ -1241,7 +1226,7 @@ mn10300_push_dummy_call (struct gdbarch *gdbarch,
   /* Allocate stack space.  */
   sp -= len;
 
-  if (struct_return)
+  if (return_method == return_method_struct)
     {
       regs_used = 1;
       regcache_cooked_write_unsigned (regcache, E_D0_REGNUM, struct_addr);
@@ -1423,8 +1408,6 @@ mn10300_gdbarch_init (struct gdbarch_info info,
   set_gdbarch_num_regs (gdbarch, num_regs);
   set_gdbarch_register_type (gdbarch, mn10300_register_type);
   set_gdbarch_skip_prologue (gdbarch, mn10300_skip_prologue);
-  set_gdbarch_read_pc (gdbarch, mn10300_read_pc);
-  set_gdbarch_write_pc (gdbarch, mn10300_write_pc);
   set_gdbarch_pc_regnum (gdbarch, E_PC_REGNUM);
   set_gdbarch_sp_regnum (gdbarch, E_SP_REGNUM);
   set_gdbarch_dwarf2_reg_to_regnum (gdbarch, mn10300_dwarf2_reg_to_regnum);

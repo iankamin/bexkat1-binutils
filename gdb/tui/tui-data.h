@@ -1,6 +1,6 @@
 /* TUI data manipulation routines.
 
-   Copyright (C) 1998-2017 Free Software Foundation, Inc.
+   Copyright (C) 1998-2018 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -229,7 +229,6 @@ union tui_which_element
 
 struct tui_win_element
 {
-  int highlight;
   union tui_which_element which_element;
 };
 
@@ -278,7 +277,6 @@ struct tui_win_info
     struct tui_source_info source_info;
     struct tui_data_info data_display_info;
     struct tui_command_info command_info;
-    void *opaque;
   }
   detail;
   int can_highlight;	/* Can this window ever be highlighted?  */
@@ -333,8 +331,6 @@ extern void tui_clear_source_windows (void);
 extern void tui_clear_source_windows_detail (void);
 extern void tui_clear_win_detail (struct tui_win_info *);
 extern void tui_add_to_source_windows (struct tui_win_info *);
-extern int tui_default_tab_len (void);
-extern void tui_set_default_tab_len (int);
 extern struct tui_win_info *tui_win_with_focus (void);
 extern void tui_set_win_with_focus (struct tui_win_info *);
 extern struct tui_layout_def *tui_layout_def (void);
@@ -345,5 +341,7 @@ extern struct tui_win_info *tui_next_win (struct tui_win_info *);
 extern struct tui_win_info *tui_prev_win (struct tui_win_info *);
 
 extern void tui_add_to_source_windows (struct tui_win_info *);
+
+extern unsigned int tui_tab_width;
 
 #endif /* TUI_DATA_H */

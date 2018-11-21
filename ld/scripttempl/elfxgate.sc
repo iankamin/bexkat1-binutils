@@ -1,4 +1,4 @@
-# Copyright (C) 2014-2017 Free Software Foundation, Inc.
+# Copyright (C) 2014-2018 Free Software Foundation, Inc.
 #
 # Copying and distribution of this file, with or without modification,
 # are permitted in any medium without royalty provided the copyright
@@ -166,7 +166,7 @@ cat <<EOF
 ${RELOCATING+/* Linker script for 68HC12 executable (PROM).  */}
 ${RELOCATING-/* Linker script for 68HC12 object file (ld -r).  */}
 
-/* Copyright (C) 2014-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2014-2018 Free Software Foundation, Inc.
 
    Copying and distribution of this script, with or without modification,
    are permitted in any medium without royalty provided the copyright
@@ -413,12 +413,11 @@ SECTIONS
     ${RELOCATING+*(.softregs)}
     ${RELOCATING+*(.sbss)}
     ${RELOCATING+*(.scommon)}
-
-    *(.dynbss)
+    ${RELOCATING+*(.dynbss)}
     *(.bss)
     ${RELOCATING+*(.bss.*)}
     ${RELOCATING+*(.gnu.linkonce.b.*)}
-    *(COMMON)
+    ${RELOCATING+*(COMMON)}
     ${RELOCATING+PROVIDE (_end = .);}
   } ${RELOCATING+ > ${DATA_MEMORY}}
   ${RELOCATING+__bss_size = SIZEOF(.bss);}
@@ -427,7 +426,7 @@ SECTIONS
   .eeprom ${RELOCATING-0} :
   {
     *(.eeprom)
-    *(.eeprom.*)
+    ${RELOCATING+*(.eeprom.*)}
   } ${RELOCATING+ > ${EEPROM_MEMORY}}
 
   ${RELOCATING+${VECTORS}}

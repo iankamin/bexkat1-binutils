@@ -1,6 +1,6 @@
 /* Python interface to symbol tables.
 
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -109,7 +109,7 @@ stpy_get_filename (PyObject *self, void *closure)
   STPY_REQUIRE_VALID (self, symtab);
   filename = symtab_to_filename_for_display (symtab);
 
-  str_obj = host_string_to_python_string (filename);
+  str_obj = host_string_to_python_string (filename).release ();
   return str_obj;
 }
 
@@ -117,13 +117,10 @@ static PyObject *
 stpy_get_objfile (PyObject *self, void *closure)
 {
   struct symtab *symtab = NULL;
-  PyObject *result;
 
   STPY_REQUIRE_VALID (self, symtab);
 
-  result = objfile_to_objfile_object (SYMTAB_OBJFILE (symtab));
-  Py_XINCREF (result);
-  return result;
+  return objfile_to_objfile_object (SYMTAB_OBJFILE (symtab)).release ();
 }
 
 /* Getter function for symtab.producer.  */
@@ -140,7 +137,7 @@ stpy_get_producer (PyObject *self, void *closure)
     {
       const char *producer = COMPUNIT_PRODUCER (cust);
 
-      return host_string_to_python_string (producer);
+      return host_string_to_python_string (producer).release ();
     }
 
   Py_RETURN_NONE;
@@ -156,7 +153,7 @@ stpy_fullname (PyObject *self, PyObject *args)
 
   fullname = symtab_to_fullname (symtab);
 
-  return host_string_to_python_string (fullname);
+  return host_string_to_python_string (fullname).release ();
 }
 
 /* Implementation of gdb.Symtab.is_valid (self) -> Boolean.

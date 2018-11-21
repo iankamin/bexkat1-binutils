@@ -1,5 +1,5 @@
 /* elfcomm.c -- common code for ELF format file.
-   Copyright (C) 2010-2017 Free Software Foundation, Inc.
+   Copyright (C) 2010-2018 Free Software Foundation, Inc.
 
    Originally developed by Eric Youngdale <eric@andante.jic.com>
    Modifications by Nick Clifton <nickc@redhat.com>
@@ -125,10 +125,10 @@ byte_put_big_endian (unsigned char * field, elf_vma value, int size)
     }
 }
 
-elf_vma (*byte_get) (unsigned char *, int);
+elf_vma (*byte_get) (const unsigned char *, int);
 
 elf_vma
-byte_get_little_endian (unsigned char *field, int size)
+byte_get_little_endian (const unsigned char *field, int size)
 {
   switch (size)
     {
@@ -231,7 +231,7 @@ byte_get_little_endian (unsigned char *field, int size)
 }
 
 elf_vma
-byte_get_big_endian (unsigned char *field, int size)
+byte_get_big_endian (const unsigned char *field, int size)
 {
   switch (size)
     {
@@ -341,7 +341,7 @@ byte_get_big_endian (unsigned char *field, int size)
 }
 
 elf_vma
-byte_get_signed (unsigned char *field, int size)
+byte_get_signed (const unsigned char *field, int size)
 {
   elf_vma x = byte_get (field, size);
 
@@ -373,7 +373,7 @@ byte_get_signed (unsigned char *field, int size)
    of an 8-byte value separately.  */
 
 void
-byte_get_64 (unsigned char *field, elf_vma *high, elf_vma *low)
+byte_get_64 (const unsigned char *field, elf_vma *high, elf_vma *low)
 {
   if (byte_get == byte_get_big_endian)
     {
@@ -622,7 +622,7 @@ setup_archive (struct archive_info *arch, const char *file_name,
   arch->longnames_size = 0;
   arch->nested_member_origin = 0;
   arch->is_thin_archive = is_thin_archive;
-  arch->uses_64bit_indicies = FALSE;
+  arch->uses_64bit_indices = FALSE;
   arch->next_arhdr_offset = SARMAG;
 
   /* Read the first archive member header.  */
@@ -649,7 +649,7 @@ setup_archive (struct archive_info *arch, const char *file_name,
     }
   else if (const_strneq (arch->arhdr.ar_name, "/SYM64/         "))
     {
-      arch->uses_64bit_indicies = TRUE;
+      arch->uses_64bit_indices = TRUE;
       if (! process_archive_index_and_symbols (arch, 8, read_symbols))
 	return 1;
     }

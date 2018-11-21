@@ -1,6 +1,6 @@
 /* Target-dependent code for the Renesas RX for GDB, the GNU debugger.
 
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2018 Free Software Foundation, Inc.
 
    Contributed by Red Hat, Inc.
 
@@ -214,8 +214,6 @@ rx_fpsw_type (struct gdbarch *gdbarch)
 static struct type *
 rx_register_type (struct gdbarch *gdbarch, int reg_nr)
 {
-  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
-
   if (reg_nr == RX_PC_REGNUM)
     return builtin_type (gdbarch)->builtin_func_ptr;
   else if (reg_nr == RX_PSW_REGNUM || reg_nr == RX_BPSW_REGNUM)
@@ -786,7 +784,8 @@ rx_dummy_id (struct gdbarch *gdbarch, struct frame_info *this_frame)
 static CORE_ADDR
 rx_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 		    struct regcache *regcache, CORE_ADDR bp_addr, int nargs,
-		    struct value **args, CORE_ADDR sp, int struct_return,
+		    struct value **args, CORE_ADDR sp,
+		    function_call_return_method return_method,
 		    CORE_ADDR struct_addr)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -832,7 +831,7 @@ rx_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 	sp = align_down (sp - sp_off, 4);
       sp_off = 0;
 
-      if (struct_return)
+      if (return_method == return_method_struct)
 	{
 	  struct type *return_type = TYPE_TARGET_TYPE (func_type);
 
@@ -856,7 +855,8 @@ rx_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 	  struct type *arg_type = check_typedef (value_type (arg));
 	  ULONGEST arg_size = TYPE_LENGTH (arg_type);
 
-	  if (i == 0 && struct_addr != 0 && !struct_return
+	  if (i == 0 && struct_addr != 0
+	      && return_method != return_method_struct
 	      && TYPE_CODE (arg_type) == TYPE_CODE_PTR
 	      && extract_unsigned_integer (arg_bits, 4,
 					   byte_order) == struct_addr)

@@ -1,5 +1,5 @@
 /* Support for printing Ada types for GDB, the GNU debugger.
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -31,6 +31,7 @@
 #include "demangle.h"
 #include "c-lang.h"
 #include "typeprint.h"
+#include "target-float.h"
 #include "ada-lang.h"
 #include <ctype.h>
 
@@ -158,13 +159,8 @@ print_range (struct type *type, struct ui_file *stream,
     case TYPE_CODE_RANGE:
     case TYPE_CODE_ENUM:
       {
-	struct type *target_type;
 	LONGEST lo = 0, hi = 0; /* init for gcc -Wall */
 	int got_error = 0;
-
-	target_type = TYPE_TARGET_TYPE (type);
-	if (target_type == NULL)
-	  target_type = type;
 
 	TRY
 	  {
@@ -185,9 +181,9 @@ print_range (struct type *type, struct ui_file *stream,
 
 	if (!got_error)
 	  {
-	    ada_print_scalar (target_type, lo, stream);
+	    ada_print_scalar (type, lo, stream);
 	    fprintf_filtered (stream, " .. ");
-	    ada_print_scalar (target_type, hi, stream);
+	    ada_print_scalar (type, hi, stream);
 	  }
       }
       break;
@@ -356,16 +352,23 @@ print_enum_type (struct type *type, struct ui_file *stream)
 static void
 print_fixed_point_type (struct type *type, struct ui_file *stream)
 {
-  DOUBLEST delta = ada_delta (type);
-  DOUBLEST small = ada_fixed_to_float (type, 1);
+  struct value *delta = ada_delta (type);
+  struct value *small = ada_scaling_factor (type);
 
-  if (delta < 0.0)
+  if (delta == nullptr)
     fprintf_filtered (stream, "delta ??");
   else
     {
-      fprintf_filtered (stream, "delta %g", (double) delta);
-      if (delta != small)
-	fprintf_filtered (stream, " <'small = %g>", (double) small);
+      std::string str;
+      str = target_float_to_string (value_contents (delta),
+				    value_type (delta), "%g");
+      fprintf_filtered (stream, "delta %s", str.c_str());
+      if (!value_equal (delta, small))
+	{
+	  str = target_float_to_string (value_contents (small),
+					value_type (small), "%g");
+	  fprintf_filtered (stream, " <'small = %s>", str.c_str());
+	}
     }
 }
 

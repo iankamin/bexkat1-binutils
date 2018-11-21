@@ -1,6 +1,6 @@
 /* Python pretty-printing
 
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -45,7 +45,7 @@ enum string_repr_result
    will return None.  On error, it will set the Python error and
    return NULL.  */
 
-static PyObject *
+static gdbpy_ref<>
 search_pp_list (PyObject *list, PyObject *value)
 {
   Py_ssize_t pp_list_size, list_index;
@@ -78,10 +78,10 @@ search_pp_list (PyObject *list, PyObject *value)
       if (printer == NULL)
 	return NULL;
       else if (printer != Py_None)
-	return printer.release ();
+	return printer;
     }
 
-  Py_RETURN_NONE;
+  return gdbpy_ref<>::new_reference (Py_None);
 }
 
 /* Subroutine of find_pretty_printer to simplify it.
@@ -97,15 +97,15 @@ find_pretty_printer_from_objfiles (PyObject *value)
 
   ALL_OBJFILES (obj)
   {
-    PyObject *objf = objfile_to_objfile_object (obj);
-    if (!objf)
+    gdbpy_ref<> objf = objfile_to_objfile_object (obj);
+    if (objf == NULL)
       {
 	/* Ignore the error and continue.  */
 	PyErr_Clear ();
 	continue;
       }
 
-    gdbpy_ref<> pp_list (objfpy_get_printers (objf, NULL));
+    gdbpy_ref<> pp_list (objfpy_get_printers (objf.get (), NULL));
     gdbpy_ref<> function (search_pp_list (pp_list.get (), value));
 
     /* If there is an error in any objfile list, abort the search and exit.  */
@@ -125,14 +125,14 @@ find_pretty_printer_from_objfiles (PyObject *value)
    The result is Py_None, suitably inc-ref'd, if no pretty-printer was found.
    Otherwise the result is the pretty-printer function, suitably inc-ref'd.  */
 
-static PyObject *
+static gdbpy_ref<>
 find_pretty_printer_from_progspace (PyObject *value)
 {
-  PyObject *obj = pspace_to_pspace_object (current_program_space);
+  gdbpy_ref<> obj = pspace_to_pspace_object (current_program_space);
 
-  if (!obj)
+  if (obj == NULL)
     return NULL;
-  gdbpy_ref<> pp_list (pspy_get_printers (obj, NULL));
+  gdbpy_ref<> pp_list (pspy_get_printers (obj.get (), NULL));
   return search_pp_list (pp_list.get (), value);
 }
 
@@ -142,17 +142,17 @@ find_pretty_printer_from_progspace (PyObject *value)
    The result is Py_None, suitably inc-ref'd, if no pretty-printer was found.
    Otherwise the result is the pretty-printer function, suitably inc-ref'd.  */
 
-static PyObject *
+static gdbpy_ref<>
 find_pretty_printer_from_gdb (PyObject *value)
 {
   /* Fetch the global pretty printer list.  */
   if (gdb_python_module == NULL
       || ! PyObject_HasAttrString (gdb_python_module, "pretty_printers"))
-    Py_RETURN_NONE;
+    return gdbpy_ref<>::new_reference (Py_None);
   gdbpy_ref<> pp_list (PyObject_GetAttrString (gdb_python_module,
 					       "pretty_printers"));
   if (pp_list == NULL || ! PyList_Check (pp_list.get ()))
-    Py_RETURN_NONE;
+    return gdbpy_ref<>::new_reference (Py_None);
 
   return search_pp_list (pp_list.get (), value);
 }
@@ -161,19 +161,19 @@ find_pretty_printer_from_gdb (PyObject *value)
    pretty-printer exists, return None.  If one exists, return a new
    reference.  On error, set the Python error and return NULL.  */
 
-static PyObject *
+static gdbpy_ref<>
 find_pretty_printer (PyObject *value)
 {
   /* Look at the pretty-printer list for each objfile
      in the current program-space.  */
   gdbpy_ref<> function (find_pretty_printer_from_objfiles (value));
   if (function == NULL || function != Py_None)
-    return function.release ();
+    return function;
 
   /* Look at the pretty-printer list for the current program-space.  */
-  function.reset (find_pretty_printer_from_progspace (value));
+  function = find_pretty_printer_from_progspace (value);
   if (function == NULL || function != Py_None)
-    return function.release ();
+    return function;
 
   /* Look at the pretty-printer list in the gdb module.  */
   return find_pretty_printer_from_gdb (value);
@@ -187,7 +187,7 @@ find_pretty_printer (PyObject *value)
    is returned.  On error, *OUT_VALUE is set to NULL, NULL is
    returned, with a python exception set.  */
 
-static PyObject *
+static gdbpy_ref<>
 pretty_print_one_value (PyObject *printer, struct value **out_value)
 {
   gdbpy_ref<> result;
@@ -195,18 +195,23 @@ pretty_print_one_value (PyObject *printer, struct value **out_value)
   *out_value = NULL;
   TRY
     {
-      result.reset (PyObject_CallMethodObjArgs (printer, gdbpy_to_string_cst,
-						NULL));
-      if (result != NULL)
+      if (!PyObject_HasAttr (printer, gdbpy_to_string_cst))
+	result = gdbpy_ref<>::new_reference (Py_None);
+      else
 	{
-	  if (! gdbpy_is_string (result.get ())
-	      && ! gdbpy_is_lazy_string (result.get ())
-	      && result != Py_None)
+	  result.reset (PyObject_CallMethodObjArgs (printer, gdbpy_to_string_cst,
+						    NULL));
+	  if (result != NULL)
 	    {
-	      *out_value = convert_value_from_python (result.get ());
-	      if (PyErr_Occurred ())
-		*out_value = NULL;
-	      result = NULL;
+	      if (! gdbpy_is_string (result.get ())
+		  && ! gdbpy_is_lazy_string (result.get ())
+		  && result != Py_None)
+		{
+		  *out_value = convert_value_from_python (result.get ());
+		  if (PyErr_Occurred ())
+		    *out_value = NULL;
+		  result = NULL;
+		}
 	    }
 	}
     }
@@ -215,7 +220,7 @@ pretty_print_one_value (PyObject *printer, struct value **out_value)
     }
   END_CATCH
 
-  return result.release ();
+  return result;
 }
 
 /* Return the display hint for the object printer, PRINTER.  Return
@@ -288,7 +293,7 @@ print_string_repr (PyObject *printer, const char *hint,
   struct value *replacement = NULL;
   enum string_repr_result result = string_repr_ok;
 
-  gdbpy_ref<> py_str (pretty_print_one_value (printer, &replacement));
+  gdbpy_ref<> py_str = pretty_print_one_value (printer, &replacement);
   if (py_str != NULL)
     {
       if (py_str == Py_None)
@@ -311,7 +316,7 @@ print_string_repr (PyObject *printer, const char *hint,
       else
 	{
 	  gdbpy_ref<> string
-	    (python_string_to_target_python_string (py_str.get ()));
+	    = python_string_to_target_python_string (py_str.get ());
 	  if (string != NULL)
 	    {
 	      char *output;
@@ -662,7 +667,9 @@ gdbpy_apply_val_pretty_printer (const struct extension_language_defn *extlang,
   struct gdbarch *gdbarch = get_type_arch (type);
   struct value *value;
   enum string_repr_result print_result;
-  const gdb_byte *valaddr = value_contents_for_printing (val);
+
+  if (value_lazy (val))
+    value_fetch_lazy (val);
 
   /* No pretty-printer support for unavailable values.  */
   if (!value_bytes_available (val, embedded_offset, TYPE_LENGTH (type)))
@@ -719,15 +726,13 @@ gdbpy_apply_val_pretty_printer (const struct extension_language_defn *extlang,
    set to the replacement value and this function returns NULL.  On
    error, *REPLACEMENT is set to NULL and this function also returns
    NULL.  */
-PyObject *
+gdbpy_ref<>
 apply_varobj_pretty_printer (PyObject *printer_obj,
 			     struct value **replacement,
 			     struct ui_file *stream)
 {
-  PyObject *py_str = NULL;
-
   *replacement = NULL;
-  py_str = pretty_print_one_value (printer_obj, replacement);
+  gdbpy_ref<> py_str = pretty_print_one_value (printer_obj, replacement);
 
   if (*replacement == NULL && py_str == NULL)
     print_stack_unless_memory_error (stream);
@@ -739,7 +744,7 @@ apply_varobj_pretty_printer (PyObject *printer_obj,
    reference to the object if successful; returns NULL if not.  VALUE
    is the value for which a printer tests to determine if it
    can pretty-print the value.  */
-PyObject *
+gdbpy_ref<>
 gdbpy_get_varobj_pretty_printer (struct value *value)
 {
   TRY
@@ -767,7 +772,6 @@ PyObject *
 gdbpy_default_visualizer (PyObject *self, PyObject *args)
 {
   PyObject *val_obj;
-  PyObject *cons;
   struct value *value;
 
   if (! PyArg_ParseTuple (args, "O", &val_obj))
@@ -780,6 +784,5 @@ gdbpy_default_visualizer (PyObject *self, PyObject *args)
       return NULL;
     }
 
-  cons = find_pretty_printer (val_obj);
-  return cons;
+  return find_pretty_printer (val_obj).release ();
 }

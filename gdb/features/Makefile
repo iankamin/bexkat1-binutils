@@ -1,4 +1,4 @@
-# Copyright (C) 2007-2017 Free Software Foundation, Inc.
+# Copyright (C) 2007-2018 Free Software Foundation, Inc.
 
 # This file is part of GDB.
 
@@ -73,6 +73,11 @@ WHICH = aarch64 \
 	rs6000/powerpc-isa205-32l rs6000/powerpc-isa205-64l \
 	rs6000/powerpc-isa205-altivec32l rs6000/powerpc-isa205-altivec64l \
 	rs6000/powerpc-isa205-vsx32l rs6000/powerpc-isa205-vsx64l \
+	rs6000/powerpc-isa205-ppr-dscr-vsx32l \
+	rs6000/powerpc-isa205-ppr-dscr-vsx64l \
+	rs6000/powerpc-isa207-vsx32l rs6000/powerpc-isa207-vsx64l \
+	rs6000/powerpc-isa207-htm-vsx32l \
+	rs6000/powerpc-isa207-htm-vsx64l \
 	s390-linux32 s390-linux64 s390x-linux64 \
 	s390-linux32v1 s390-linux64v1 s390x-linux64v1 \
 	s390-linux32v2 s390-linux64v2 s390x-linux64v2 \
@@ -93,6 +98,7 @@ mips64-expedite = r29,pc
 mips64-dsp-expedite = r29,pc
 microblaze-expedite = r1,rpc
 nios2-linux-expedite = sp,pc
+or1k-expedite = r1,npc
 powerpc-expedite = r1,pc
 rs6000/powerpc-cell32l-expedite = r1,pc,r0,orig_r3,r4
 rs6000/powerpc-cell64l-expedite = r1,pc,r0,orig_r3,r4
@@ -119,7 +125,6 @@ OUTPUTS = $(patsubst %,$(outdir)/%.dat,$(WHICH))
 # --enable-targets=all GDB.  You can override this by passing XMLTOC
 # to make on the command line.
 XMLTOC = \
-	aarch64.xml \
 	arc-v2.xml \
 	arc-arcompact.xml \
 	arm/arm-with-iwmmxt.xml \
@@ -136,8 +141,8 @@ XMLTOC = \
 	mips64-dsp-linux.xml \
 	mips64-linux.xml \
 	nds32.xml \
-	nios2-linux.xml \
 	nios2.xml \
+	or1k.xml \
 	rs6000/powerpc-32.xml \
 	rs6000/powerpc-32l.xml \
 	rs6000/powerpc-403.xml \
@@ -167,6 +172,12 @@ XMLTOC = \
 	rs6000/powerpc-isa205-altivec64l.xml \
 	rs6000/powerpc-isa205-vsx32l.xml \
 	rs6000/powerpc-isa205-vsx64l.xml \
+	rs6000/powerpc-isa205-ppr-dscr-vsx32l.xml \
+	rs6000/powerpc-isa205-ppr-dscr-vsx64l.xml \
+	rs6000/powerpc-isa207-vsx32l.xml \
+	rs6000/powerpc-isa207-vsx64l.xml \
+	rs6000/powerpc-isa207-htm-vsx32l.xml \
+	rs6000/powerpc-isa207-htm-vsx64l.xml \
 	rs6000/powerpc-vsx32.xml \
 	rs6000/powerpc-vsx32l.xml \
 	rs6000/powerpc-vsx64.xml \
@@ -193,12 +204,18 @@ XMLTOC = \
 TDESC_CFILES = $(patsubst %.xml,%.c,$(XMLTOC))
 GDB = false
 
+#Targets which use feature based target descriptions.
+aarch64-feature = 1
+i386-feature = 1
+tic6x-feature = 1
+
 all: $(OUTPUTS)
 
 $(outdir)/%.dat: %.xml number-regs.xsl sort-regs.xsl gdbserver-regs.xsl
 	echo "# THIS FILE IS GENERATED.  -*- buffer-read-only: t -*- vi :set ro:" > $(outdir)/$*.tmp
 	echo "# Generated from: $<" >> $(outdir)/$*.tmp
 	echo "name:`echo $(notdir $*) | sed 's/-/_/g'`" >> $(outdir)/$*.tmp
+	$(if $($(firstword $(subst /, ,$(subst -, ,$*)))-feature), echo "feature:1") >> $(outdir)/$*.tmp
 	echo "xmltarget:$(<F)" >> $(outdir)/$*.tmp
 	echo "expedite:$(if $($*-expedite),$($*-expedite),$($(firstword $(subst -, ,$(notdir $*)))-expedite))" \
 	  >> $(outdir)/$*.tmp
@@ -207,7 +224,9 @@ $(outdir)/%.dat: %.xml number-regs.xsl sort-regs.xsl gdbserver-regs.xsl
 	  $(XSLTPROC) gdbserver-regs.xsl - >> $(outdir)/$*.tmp
 	sh ../../move-if-change $(outdir)/$*.tmp $(outdir)/$*.dat
 
-FEATURE_XMLFILES = i386/32bit-core.xml \
+FEATURE_XMLFILES = aarch64-core.xml \
+	aarch64-fpu.xml \
+	i386/32bit-core.xml \
 	i386/32bit-sse.xml \
 	i386/32bit-linux.xml \
 	i386/32bit-avx.xml \
@@ -222,7 +241,10 @@ FEATURE_XMLFILES = i386/32bit-core.xml \
 	i386/64bit-linux.xml \
 	i386/64bit-pkeys.xml \
 	i386/64bit-sse.xml \
-	i386/x32-core.xml
+	i386/x32-core.xml \
+	tic6x-c6xp.xml \
+	tic6x-core.xml \
+	tic6x-gp.xml
 
 FEATURE_CFILES = $(patsubst %.xml,%.c,$(FEATURE_XMLFILES))
 

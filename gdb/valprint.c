@@ -1,6 +1,6 @@
 /* Print values for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,8 +27,7 @@
 #include "language.h"
 #include "annotate.h"
 #include "valprint.h"
-#include "doublest.h"
-#include "dfp.h"
+#include "target-float.h"
 #include "extension.h"
 #include "ada-lang.h"
 #include "gdb_obstack.h"
@@ -71,9 +70,6 @@ struct converted_character
   int repeat_count;
 };
 
-typedef struct converted_character converted_character_d;
-DEF_VEC_O (converted_character_d);
-
 /* Command lists for set/show print raw.  */
 struct cmd_list_element *setprintrawlist;
 struct cmd_list_element *showprintrawlist;
@@ -83,11 +79,7 @@ struct cmd_list_element *showprintrawlist;
 static int partial_memory_read (CORE_ADDR memaddr, gdb_byte *myaddr,
 				int len, int *errptr);
 
-static void set_input_radix (char *, int, struct cmd_list_element *);
-
 static void set_input_radix_1 (int, unsigned);
-
-static void set_output_radix (char *, int, struct cmd_list_element *);
 
 static void set_output_radix_1 (int, unsigned);
 
@@ -1366,18 +1358,7 @@ void
 print_floating (const gdb_byte *valaddr, struct type *type,
 		struct ui_file *stream)
 {
-  std::string str;
-  if (TYPE_CODE (type) == TYPE_CODE_FLT)
-    {
-      const struct floatformat *fmt = floatformat_from_type (type);
-      str = floatformat_to_string (fmt, valaddr);
-    }
-  else
-    {
-      enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
-      unsigned len = TYPE_LENGTH (type);
-      str = decimal_to_string (valaddr, len, byte_order);
-    }
+  std::string str = target_float_to_string (valaddr, type);
   fputs_filtered (str.c_str (), stream);
 }
 
@@ -1623,6 +1604,7 @@ maybe_negate_by_bytes (const gdb_byte *bytes, unsigned len,
 		       gdb::byte_vector *out_vec)
 {
   gdb_byte sign_byte;
+  gdb_assert (len > 0);
   if (byte_order == BFD_ENDIAN_BIG)
     sign_byte = bytes[0];
   else
@@ -1904,7 +1886,7 @@ print_function_pointer_address (const struct value_print_options *options,
 {
   CORE_ADDR func_addr
     = gdbarch_convert_from_func_ptr_addr (gdbarch, address,
-					  &current_target);
+					  current_top_target ());
 
   /* If the function pointer is represented by a description, print
      the address of the description.  */
@@ -2115,10 +2097,10 @@ partial_memory_read (CORE_ADDR memaddr, gdb_byte *myaddr,
   return (nread);
 }
 
-/* Read a string from the inferior, at ADDR, with LEN characters of WIDTH bytes
-   each.  Fetch at most FETCHLIMIT characters.  BUFFER will be set to a newly
-   allocated buffer containing the string, which the caller is responsible to
-   free, and BYTES_READ will be set to the number of bytes read.  Returns 0 on
+/* Read a string from the inferior, at ADDR, with LEN characters of
+   WIDTH bytes each.  Fetch at most FETCHLIMIT characters.  BUFFER
+   will be set to a newly allocated buffer containing the string, and
+   BYTES_READ will be set to the number of bytes read.  Returns 0 on
    success, or a target_xfer_status on failure.
 
    If LEN > 0, reads the lesser of LEN or FETCHLIMIT characters
@@ -2141,20 +2123,18 @@ partial_memory_read (CORE_ADDR memaddr, gdb_byte *myaddr,
 
 int
 read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
-	     enum bfd_endian byte_order, gdb_byte **buffer, int *bytes_read)
+	     enum bfd_endian byte_order, gdb::unique_xmalloc_ptr<gdb_byte> *buffer,
+	     int *bytes_read)
 {
   int errcode;			/* Errno returned from bad reads.  */
   unsigned int nfetch;		/* Chars to fetch / chars fetched.  */
   gdb_byte *bufptr;		/* Pointer to next available byte in
 				   buffer.  */
-  struct cleanup *old_chain = NULL;	/* Top of the old cleanup chain.  */
 
   /* Loop until we either have all the characters, or we encounter
      some error, such as bumping into the end of the address space.  */
 
-  *buffer = NULL;
-
-  old_chain = make_cleanup (free_current_contents, buffer);
+  buffer->reset (nullptr);
 
   if (len > 0)
     {
@@ -2162,8 +2142,8 @@ read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
 	 one operation.  */
       unsigned int fetchlen = std::min ((unsigned) len, fetchlimit);
 
-      *buffer = (gdb_byte *) xmalloc (fetchlen * width);
-      bufptr = *buffer;
+      buffer->reset ((gdb_byte *) xmalloc (fetchlen * width));
+      bufptr = buffer->get ();
 
       nfetch = partial_memory_read (addr, bufptr, fetchlen * width, &errcode)
 	/ width;
@@ -2192,12 +2172,12 @@ read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
 	  nfetch = std::min ((unsigned long) chunksize, fetchlimit - bufsize);
 
 	  if (*buffer == NULL)
-	    *buffer = (gdb_byte *) xmalloc (nfetch * width);
+	    buffer->reset ((gdb_byte *) xmalloc (nfetch * width));
 	  else
-	    *buffer = (gdb_byte *) xrealloc (*buffer,
-					     (nfetch + bufsize) * width);
+	    buffer->reset ((gdb_byte *) xrealloc (buffer->release (),
+						  (nfetch + bufsize) * width));
 
-	  bufptr = *buffer + bufsize * width;
+	  bufptr = buffer->get () + bufsize * width;
 	  bufsize += nfetch;
 
 	  /* Read as much as we can.  */
@@ -2229,23 +2209,22 @@ read_string (CORE_ADDR addr, int len, int width, unsigned int fetchlimit,
 	    }
 	}
       while (errcode == 0	/* no error */
-	     && bufptr - *buffer < fetchlimit * width	/* no overrun */
+	     && bufptr - buffer->get () < fetchlimit * width	/* no overrun */
 	     && !found_nul);	/* haven't found NUL yet */
     }
   else
     {				/* Length of string is really 0!  */
       /* We always allocate *buffer.  */
-      *buffer = bufptr = (gdb_byte *) xmalloc (1);
+      buffer->reset ((gdb_byte *) xmalloc (1));
+      bufptr = buffer->get ();
       errcode = 0;
     }
 
   /* bufptr and addr now point immediately beyond the last byte which we
      consider part of the string (including a '\0' which ends the string).  */
-  *bytes_read = bufptr - *buffer;
+  *bytes_read = bufptr - buffer->get ();
 
   QUIT;
-
-  discard_cleanups (old_chain);
 
   return errcode;
 }
@@ -2382,13 +2361,13 @@ generic_emit_char (int c, struct type *type, struct ui_file *stream,
 {
   enum bfd_endian byte_order
     = gdbarch_byte_order (get_type_arch (type));
-  gdb_byte *buf;
+  gdb_byte *c_buf;
   int need_escape = 0;
 
-  buf = (gdb_byte *) alloca (TYPE_LENGTH (type));
-  pack_long (buf, type, c);
+  c_buf = (gdb_byte *) alloca (TYPE_LENGTH (type));
+  pack_long (c_buf, type, c);
 
-  wchar_iterator iter (buf, TYPE_LENGTH (type), encoding, TYPE_LENGTH (type));
+  wchar_iterator iter (c_buf, TYPE_LENGTH (type), encoding, TYPE_LENGTH (type));
 
   /* This holds the printable form of the wchar_t data.  */
   auto_obstack wchar_buf;
@@ -2454,11 +2433,11 @@ generic_emit_char (int c, struct type *type, struct ui_file *stream,
 
 static int
 count_next_character (wchar_iterator *iter,
-		      VEC (converted_character_d) **vec)
+		      std::vector<converted_character> *vec)
 {
   struct converted_character *current;
 
-  if (VEC_empty (converted_character_d, *vec))
+  if (vec->empty ())
     {
       struct converted_character tmp;
       gdb_wchar_t *chars;
@@ -2470,10 +2449,10 @@ count_next_character (wchar_iterator *iter,
 	  gdb_assert (tmp.num_chars < MAX_WCHARS);
 	  memcpy (tmp.chars, chars, tmp.num_chars * sizeof (gdb_wchar_t));
 	}
-      VEC_safe_push (converted_character_d, *vec, &tmp);
+      vec->push_back (tmp);
     }
 
-  current = VEC_last (converted_character_d, *vec);
+  current = &vec->back ();
 
   /* Count repeated characters or bytes.  */
   current->repeat_count = 1;
@@ -2527,7 +2506,7 @@ count_next_character (wchar_iterator *iter,
 
       /* Push this next converted character onto the result vector.  */
       repeat = current->repeat_count;
-      VEC_safe_push (converted_character_d, *vec, &d);
+      vec->push_back (d);
       return repeat;
     }
 }
@@ -2539,13 +2518,13 @@ count_next_character (wchar_iterator *iter,
 
 static void
 print_converted_chars_to_obstack (struct obstack *obstack,
-				  VEC (converted_character_d) *chars,
+				  const std::vector<converted_character> &chars,
 				  int quote_char, int width,
 				  enum bfd_endian byte_order,
 				  const struct value_print_options *options)
 {
   unsigned int idx;
-  struct converted_character *elem;
+  const converted_character *elem;
   enum {START, SINGLE, REPEAT, INCOMPLETE, FINISH} state, last;
   gdb_wchar_t wide_quote_char = gdb_btowc (quote_char);
   int need_escape = 0;
@@ -2594,7 +2573,6 @@ print_converted_chars_to_obstack (struct obstack *obstack,
 	case REPEAT:
 	  {
 	    int j;
-	    char *s;
 
 	    /* We are outputting a character with a repeat count
 	       greater than options->repeat_count_threshold.  */
@@ -2617,13 +2595,13 @@ print_converted_chars_to_obstack (struct obstack *obstack,
 	      print_wchar (gdb_WEOF, elem->buf, elem->buflen, width,
 			   byte_order, obstack, quote_char, &need_escape);
 	    obstack_grow_wstr (obstack, LCST ("'"));
-	    s = xstrprintf (_(" <repeats %u times>"), elem->repeat_count);
+	    std::string s = string_printf (_(" <repeats %u times>"),
+					   elem->repeat_count);
 	    for (j = 0; s[j]; ++j)
 	      {
 		gdb_wchar_t w = gdb_btowc (s[j]);
 		obstack_grow (obstack, &w, sizeof (gdb_wchar_t));
 	      }
-	    xfree (s);
 	  }
 	  break;
 
@@ -2662,7 +2640,7 @@ print_converted_chars_to_obstack (struct obstack *obstack,
       last = state;
       if (state != FINISH)
 	{
-	  elem = VEC_index (converted_character_d, chars, idx++);
+	  elem = &chars[idx++];
 	  switch (elem->result)
 	    {
 	    case wchar_iterate_ok:
@@ -2705,10 +2683,8 @@ generic_printstr (struct ui_file *stream, struct type *type,
   enum bfd_endian byte_order = gdbarch_byte_order (get_type_arch (type));
   unsigned int i;
   int width = TYPE_LENGTH (type);
-  struct cleanup *cleanup;
   int finished = 0;
   struct converted_character *last;
-  VEC (converted_character_d) *converted_chars;
 
   if (length == -1)
     {
@@ -2741,9 +2717,7 @@ generic_printstr (struct ui_file *stream, struct type *type,
 
   /* Arrange to iterate over the characters, in wchar_t form.  */
   wchar_iterator iter (string, length * width, encoding, width);
-  converted_chars = NULL;
-  cleanup = make_cleanup (VEC_cleanup (converted_character_d),
-			  &converted_chars);
+  std::vector<converted_character> converted_chars;
 
   /* Convert characters until the string is over or the maximum
      number of printed characters has been reached.  */
@@ -2768,7 +2742,7 @@ generic_printstr (struct ui_file *stream, struct type *type,
 
   /* Get the last element and determine if the entire string was
      processed.  */
-  last = VEC_last (converted_character_d, converted_chars);
+  last = &converted_chars.back ();
   finished = (last->result == wchar_iterate_eof);
 
   /* Ensure that CONVERTED_CHARS is terminated.  */
@@ -2795,8 +2769,6 @@ generic_printstr (struct ui_file *stream, struct type *type,
   obstack_1grow (&output, '\0');
 
   fputs_filtered ((const char *) obstack_base (&output), stream);
-
-  do_cleanups (cleanup);
 }
 
 /* Print a string from the inferior, starting at ADDR and printing up to LEN
@@ -2818,8 +2790,7 @@ val_print_string (struct type *elttype, const char *encoding,
   int found_nul;		/* Non-zero if we found the nul char.  */
   unsigned int fetchlimit;	/* Maximum number of chars to print.  */
   int bytes_read;
-  gdb_byte *buffer = NULL;	/* Dynamically growable fetch buffer.  */
-  struct cleanup *old_chain = NULL;	/* Top of the old cleanup chain.  */
+  gdb::unique_xmalloc_ptr<gdb_byte> buffer;	/* Dynamically growable fetch buffer.  */
   struct gdbarch *gdbarch = get_type_arch (elttype);
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int width = TYPE_LENGTH (elttype);
@@ -2837,7 +2808,6 @@ val_print_string (struct type *elttype, const char *encoding,
 
   err = read_string (addr, len, width, fetchlimit, byte_order,
 		     &buffer, &bytes_read);
-  old_chain = make_cleanup (xfree, buffer);
 
   addr += bytes_read;
 
@@ -2848,8 +2818,8 @@ val_print_string (struct type *elttype, const char *encoding,
   /* Determine found_nul by looking at the last character read.  */
   found_nul = 0;
   if (bytes_read >= width)
-    found_nul = extract_unsigned_integer (buffer + bytes_read - width, width,
-					  byte_order) == 0;
+    found_nul = extract_unsigned_integer (buffer.get () + bytes_read - width,
+					  width, byte_order) == 0;
   if (len == -1 && !found_nul)
     {
       gdb_byte *peekbuf;
@@ -2877,7 +2847,7 @@ val_print_string (struct type *elttype, const char *encoding,
      and then the error message.  */
   if (err == 0 || bytes_read > 0)
     {
-      LA_PRINT_STRING (stream, elttype, buffer, bytes_read / width,
+      LA_PRINT_STRING (stream, elttype, buffer.get (), bytes_read / width,
 		       encoding, force_ellipsis, options);
     }
 
@@ -2891,7 +2861,6 @@ val_print_string (struct type *elttype, const char *encoding,
     }
 
   gdb_flush (stream);
-  do_cleanups (old_chain);
 
   return (bytes_read / width);
 }
@@ -2908,7 +2877,7 @@ static unsigned input_radix_1 = 10;
    setting the input radix to "10" never changes it!  */
 
 static void
-set_input_radix (char *args, int from_tty, struct cmd_list_element *c)
+set_input_radix (const char *args, int from_tty, struct cmd_list_element *c)
 {
   set_input_radix_1 (from_tty, input_radix_1);
 }
@@ -2945,7 +2914,7 @@ set_input_radix_1 (int from_tty, unsigned radix)
 static unsigned output_radix_1 = 10;
 
 static void
-set_output_radix (char *args, int from_tty, struct cmd_list_element *c)
+set_output_radix (const char *args, int from_tty, struct cmd_list_element *c)
 {
   set_output_radix_1 (from_tty, output_radix_1);
 }

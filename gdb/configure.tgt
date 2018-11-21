@@ -29,6 +29,7 @@ case $targ in
  hppa*-*-hpux* | \
  ia64-*-hpux* | \
  *-*-vxworks* | \
+ mt-*-* | \
  null)
     echo "*** Configuration $targ is obsolete." >&2
     echo "*** Support has been REMOVED." >&2
@@ -36,8 +37,9 @@ case $targ in
     ;;
 esac
 
-i386_tobjs="i386-tdep.o arch/i386.o i387-tdep.o"
-amd64_tobjs="amd64-tdep.o arch/amd64.o"
+x86_tobjs="x86-tdep.o"
+i386_tobjs="i386-tdep.o arch/i386.o i387-tdep.o ${x86_tobjs}"
+amd64_tobjs="amd64-tdep.o arch/amd64.o ${x86_tobjs}"
 
 # Here are three sections to get a list of target specific object
 # files according to target triplet $TARG.
@@ -46,7 +48,8 @@ amd64_tobjs="amd64-tdep.o arch/amd64.o"
 
 case "${targ}" in
 aarch64*-*-*)
-	cpu_obs="aarch64-tdep.o arch/aarch64-insn.o";;
+	cpu_obs="aarch64-tdep.o arch/aarch64-insn.o arch/aarch64.o \
+		 ravenscar-thread.o aarch64-ravenscar-thread.o";;
 
 alpha*-*-*)
 	# Target: Alpha
@@ -114,7 +117,7 @@ aarch64*-*-freebsd*)
 
 aarch64*-*-linux*)
 	# Target: AArch64 linux
-	gdb_target_obs="aarch64-linux-tdep.o \
+	gdb_target_obs="aarch64-linux-tdep.o arch/aarch64.o\
 			arch/arm.o arch/arm-linux.o arch/arm-get-next-pcs.o \
 			arm-tdep.o arm-linux-tdep.o \
 			glibc-tdep.o linux-tdep.o solib-svr4.o \
@@ -178,6 +181,7 @@ arm*-*-symbianelf*)
 	;;
 arm*-*-*)
 	# Target: ARM embedded system
+	gdb_target_obs="arm-pikeos-tdep.o"
 	gdb_sim=../sim/arm/libsim.a
 	;;
 
@@ -202,6 +206,17 @@ bfin-*-*)
 cris*)
 	# Target: CRIS
 	gdb_target_obs="cris-tdep.o cris-linux-tdep.o linux-tdep.o solib-svr4.o"
+	;;
+
+csky*-*-linux*)
+	# Target: CSKY running GNU/Linux
+	gdb_target_obs="csky-tdep.o csky-linux-tdep.o glibc-tdep.o \
+			linux-tdep.o solib-svr4.o"
+	;;
+
+csky*-*-*)
+	# Target: CSKY bare metal
+	gdb_target_obs="csky-tdep.o"
 	;;
 
 frv-*-*)
@@ -371,11 +386,6 @@ m68*-*-openbsd*)
 	gdb_target_obs="m68k-tdep.o m68k-bsd-tdep.o"
 	;;
 
-m88*-*-openbsd*)
-	# Target: OpenBSD/m88k
-	gdb_target_obs="m88k-tdep.o"
-	;;
-
 mep-*-*)
 	# Target: Toshiba Media Processor (MEP)
 	gdb_target_obs="mep-tdep.o"
@@ -442,11 +452,6 @@ msp430*-*-elf)
 	gdb_sim=../sim/msp430/libsim.a
 	;;
 
-mt-*-*)
-	# Target: Morpho Technologies ms1 processor
-	gdb_target_obs="mt-tdep.o"
-	;;
-
 nds32*-*-elf)
 	# Target: AndesTech NDS32 core
 	gdb_target_obs="nds32-tdep.o"
@@ -461,6 +466,12 @@ nios2*-*-linux*)
 nios2*-*-*)
 	# Target: Altera Nios II bare-metal
 	gdb_target_obs="nios2-tdep.o"
+	;;
+
+or1k-*-* | or1knd-*-*)
+	# Target: OpenCores OpenRISC 1000 32-bit implementation bare metal
+	gdb_target_obs="or1k-tdep.o"
+	gdb_sim=../sim/or1k/libsim.a
 	;;
 
 powerpc*-*-freebsd*)
@@ -494,7 +505,8 @@ powerpc*-*-linux*)
 			spu-multiarch.o \
 			glibc-tdep.o symfile-mem.o linux-tdep.o \
 			ravenscar-thread.o ppc-ravenscar-thread.o \
-			linux-record.o "
+			linux-record.o \
+			arch/ppc-linux-common.o"
 	gdb_sim=../sim/ppc/libsim.a
 	build_gdbserver=yes
 	;;
@@ -513,9 +525,25 @@ powerpc*-*-*)
 
 s390*-*-linux*)
 	# Target: S390 running Linux
-	gdb_target_obs="s390-linux-tdep.o solib-svr4.o linux-tdep.o \
-			linux-record.o"
+	gdb_target_obs="s390-linux-tdep.o s390-tdep.o solib-svr4.o \
+			linux-tdep.o linux-record.o symfile-mem.o"
 	build_gdbserver=yes
+	;;
+
+riscv*-*-freebsd*)
+	# Target: FreeBSD/riscv
+	gdb_target_obs="riscv-fbsd-tdep.o riscv-tdep.o"
+	;;
+
+riscv*-*-linux*)
+	# Target: Linux/RISC-V
+	gdb_target_obs="riscv-linux-tdep.o riscv-tdep.o glibc-tdep.o \
+ 			linux-tdep.o solib-svr4.o symfile-mem.o linux-record.o"
+	;;
+
+riscv*-*-*)
+	# Target: RISC-V architecture
+	gdb_target_obs="riscv-tdep.o"
 	;;
 
 rl78-*-elf)
@@ -538,7 +566,7 @@ score-*-*)
 
 sh*-*-linux*)
 	# Target: GNU/Linux Super-H
-	gdb_target_obs="sh-tdep.o sh64-tdep.o sh-linux-tdep.o \
+	gdb_target_obs="sh-tdep.o sh-linux-tdep.o \
 			solib-svr4.o symfile-mem.o \
 			glibc-tdep.o linux-tdep.o"
 	gdb_sim=../sim/sh/libsim.a
@@ -551,16 +579,11 @@ sh*-*-netbsdelf* | sh*-*-knetbsd*-gnu)
 	;;
 sh*-*-openbsd*)
 	# Target: OpenBSD/sh
-	gdb_target_obs="sh-tdep.o sh64-tdep.o sh-nbsd-tdep.o"
-	;;
-sh64-*-elf*)
-	# Target: Renesas/Super-H 64 bit with simulator
-	gdb_target_obs="sh-tdep.o sh64-tdep.o"
-	gdb_sim=../sim/sh64/libsim.a
+	gdb_target_obs="sh-tdep.o sh-nbsd-tdep.o"
 	;;
 sh*)
 	# Target: Embedded Renesas Super-H processor
-	gdb_target_obs="sh-tdep.o sh64-tdep.o"
+	gdb_target_obs="sh-tdep.o"
 	gdb_sim=../sim/sh/libsim.a
 	;;
 
@@ -636,6 +659,11 @@ spu*-*-*)
 	# Target: Cell BE SPU
 	gdb_target_obs="spu-tdep.o"
 	build_gdbserver=yes
+	;;
+
+s12z-*-*)
+	# Target: Freescale S12z
+	gdb_target_obs="s12z-tdep.o"
 	;;
 
 tic6x-*-*linux)
@@ -733,7 +761,7 @@ x86_64-*-openbsd*)
 x86_64-*-rtems*)
 	gdb_target_obs="${amd64_tobjs} ${i386_tobjs} i386-bsd-tdep.o"
 	;;
-xtensa*-*-linux*)	gdb_target=linux
+xtensa*-*-*linux*)
 	# Target: GNU/Linux Xtensa
 	gdb_target_obs="xtensa-linux-tdep.o symfile-mem.o linux-tdep.o"
 	build_gdbserver=yes

@@ -1,6 +1,6 @@
 /* Target-dependent code for GNU/Linux, architecture independent.
 
-   Copyright (C) 2009-2017 Free Software Foundation, Inc.
+   Copyright (C) 2009-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -32,7 +32,7 @@
 #include "cli/cli-utils.h"
 #include "arch-utils.h"
 #include "gdb_obstack.h"
-#include "observer.h"
+#include "observable.h"
 #include "objfiles.h"
 #include "infcall.h"
 #include "gdbcmd.h"
@@ -92,6 +92,11 @@ struct smaps_vmflags
    generating a corefile.  */
 
 static int use_coredump_filter = 1;
+
+/* Whether the value of smaps_vmflags->exclude_coredump should be
+   ignored, including mappings marked with the VM_DONTDUMP flag in
+   the dump.  */
+static int dump_excluded_mappings = 0;
 
 /* This enum represents the signals' numbers on a generic architecture
    running the Linux kernel.  The definition of "generic" comes from
@@ -397,8 +402,8 @@ linux_is_uclinux (void)
 {
   CORE_ADDR dummy;
 
-  return (target_auxv_search (&current_target, AT_NULL, &dummy) > 0
-	  && target_auxv_search (&current_target, AT_PAGESZ, &dummy) == 0);
+  return (target_auxv_search (current_top_target (), AT_NULL, &dummy) > 0
+	  && target_auxv_search (current_top_target (), AT_PAGESZ, &dummy) == 0);
 }
 
 static int
@@ -414,9 +419,9 @@ linux_core_pid_to_str (struct gdbarch *gdbarch, ptid_t ptid)
 {
   static char buf[80];
 
-  if (ptid_get_lwp (ptid) != 0)
+  if (ptid.lwp () != 0)
     {
-      snprintf (buf, sizeof (buf), "LWP %ld", ptid_get_lwp (ptid));
+      snprintf (buf, sizeof (buf), "LWP %ld", ptid.lwp ());
       return buf;
     }
 
@@ -655,7 +660,7 @@ dump_mapping_p (filter_flags filterflags, const struct smaps_vmflags *v,
 	return 0;
 
       /* Check if we should exclude this mapping.  */
-      if (v->exclude_coredump)
+      if (!dump_excluded_mappings && v->exclude_coredump)
 	return 0;
 
       /* Update our notion of whether this mapping is shared or
@@ -721,7 +726,6 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
   int status_f = (what == IP_STATUS || what == IP_ALL);
   int stat_f = (what == IP_STAT || what == IP_ALL);
   char filename[100];
-  char *data;
   int target_errno;
 
   if (args && isdigit (args[0]))
@@ -749,36 +753,42 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
   if (cmdline_f)
     {
       xsnprintf (filename, sizeof filename, "/proc/%ld/cmdline", pid);
-      gdb::unique_xmalloc_ptr<char> cmdline
-	= target_fileio_read_stralloc (NULL, filename);
-      if (cmdline)
-	printf_filtered ("cmdline = '%s'\n", cmdline.get ());
+      gdb_byte *buffer;
+      ssize_t len = target_fileio_read_alloc (NULL, filename, &buffer);
+
+      if (len > 0)
+	{
+	  gdb::unique_xmalloc_ptr<char> cmdline ((char *) buffer);
+	  ssize_t pos;
+
+	  for (pos = 0; pos < len - 1; pos++)
+	    {
+	      if (buffer[pos] == '\0')
+		buffer[pos] = ' ';
+	    }
+	  buffer[len - 1] = '\0';
+	  printf_filtered ("cmdline = '%s'\n", buffer);
+	}
       else
 	warning (_("unable to open /proc file '%s'"), filename);
     }
   if (cwd_f)
     {
       xsnprintf (filename, sizeof filename, "/proc/%ld/cwd", pid);
-      data = target_fileio_readlink (NULL, filename, &target_errno);
-      if (data)
-	{
-	  struct cleanup *cleanup = make_cleanup (xfree, data);
-          printf_filtered ("cwd = '%s'\n", data);
-	  do_cleanups (cleanup);
-	}
+      gdb::optional<std::string> contents
+	= target_fileio_readlink (NULL, filename, &target_errno);
+      if (contents.has_value ())
+	printf_filtered ("cwd = '%s'\n", contents->c_str ());
       else
 	warning (_("unable to read link '%s'"), filename);
     }
   if (exe_f)
     {
       xsnprintf (filename, sizeof filename, "/proc/%ld/exe", pid);
-      data = target_fileio_readlink (NULL, filename, &target_errno);
-      if (data)
-	{
-	  struct cleanup *cleanup = make_cleanup (xfree, data);
-          printf_filtered ("exe = '%s'\n", data);
-	  do_cleanups (cleanup);
-	}
+      gdb::optional<std::string> contents
+	= target_fileio_readlink (NULL, filename, &target_errno);
+      if (contents.has_value ())
+	printf_filtered ("exe = '%s'\n", contents->c_str ());
       else
 	warning (_("unable to read link '%s'"), filename);
     }
@@ -812,13 +822,13 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
 	       line = strtok (NULL, "\n"))
 	    {
 	      ULONGEST addr, endaddr, offset, inode;
-	      const char *permissions, *device, *filename;
+	      const char *permissions, *device, *mapping_filename;
 	      size_t permissions_len, device_len;
 
 	      read_mapping (line, &addr, &endaddr,
 			    &permissions, &permissions_len,
 			    &offset, &device, &device_len,
-			    &inode, &filename);
+			    &inode, &mapping_filename);
 
 	      if (gdbarch_addr_bit (gdbarch) == 32)
 	        {
@@ -827,7 +837,7 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
 				   paddress (gdbarch, endaddr),
 				   hex_string (endaddr - addr),
 				   hex_string (offset),
-				   *filename? filename : "");
+				   *mapping_filename ? mapping_filename : "");
 		}
 	      else
 	        {
@@ -836,7 +846,7 @@ linux_info_proc (struct gdbarch *gdbarch, const char *args,
 				   paddress (gdbarch, endaddr),
 				   hex_string (endaddr - addr),
 				   hex_string (offset),
-				   *filename? filename : "");
+				   *mapping_filename ? mapping_filename : "");
 	        }
 	    }
 	}
@@ -1375,7 +1385,7 @@ static int
 find_signalled_thread (struct thread_info *info, void *data)
 {
   if (info->suspend.stop_signal != GDB_SIGNAL_0
-      && ptid_get_pid (info->ptid) == ptid_get_pid (inferior_ptid))
+      && info->ptid.pid () == inferior_ptid.pid ())
     return 1;
 
   return 0;
@@ -1409,46 +1419,41 @@ linux_spu_make_corefile_notes (bfd *obfd, char *note_data, int *note_size)
    };
 
   enum bfd_endian byte_order = gdbarch_byte_order (target_gdbarch ());
-  gdb_byte *spu_ids;
-  LONGEST i, j, size;
 
   /* Determine list of SPU ids.  */
-  size = target_read_alloc (&current_target, TARGET_OBJECT_SPU,
-			    NULL, &spu_ids);
+  gdb::optional<gdb::byte_vector>
+    spu_ids = target_read_alloc (current_top_target (),
+				 TARGET_OBJECT_SPU, NULL);
+
+  if (!spu_ids)
+    return note_data;
 
   /* Generate corefile notes for each SPU file.  */
-  for (i = 0; i < size; i += 4)
+  for (size_t i = 0; i < spu_ids->size (); i += 4)
     {
-      int fd = extract_unsigned_integer (spu_ids + i, 4, byte_order);
+      int fd = extract_unsigned_integer (spu_ids->data () + i, 4, byte_order);
 
-      for (j = 0; j < sizeof (spu_files) / sizeof (spu_files[0]); j++)
+      for (size_t j = 0; j < sizeof (spu_files) / sizeof (spu_files[0]); j++)
 	{
 	  char annex[32], note_name[32];
-	  gdb_byte *spu_data;
-	  LONGEST spu_len;
 
 	  xsnprintf (annex, sizeof annex, "%d/%s", fd, spu_files[j]);
-	  spu_len = target_read_alloc (&current_target, TARGET_OBJECT_SPU,
-				       annex, &spu_data);
-	  if (spu_len > 0)
+	  gdb::optional<gdb::byte_vector> spu_data
+	    = target_read_alloc (current_top_target (), TARGET_OBJECT_SPU, annex);
+
+	  if (spu_data && !spu_data->empty ())
 	    {
 	      xsnprintf (note_name, sizeof note_name, "SPU/%s", annex);
 	      note_data = elfcore_write_note (obfd, note_data, note_size,
 					      note_name, NT_SPU,
-					      spu_data, spu_len);
-	      xfree (spu_data);
+					      spu_data->data (),
+					      spu_data->size ());
 
 	      if (!note_data)
-		{
-		  xfree (spu_ids);
-		  return NULL;
-		}
+		return nullptr;
 	    }
 	}
     }
-
-  if (size > 0)
-    xfree (spu_ids);
 
   return note_data;
 }
@@ -1542,8 +1547,9 @@ linux_make_mappings_corefile_notes (struct gdbarch *gdbarch, bfd *obfd,
 		 long_type, mapping_data.file_count);
 
       /* Copy the filenames to the data obstack.  */
+      int size = obstack_object_size (&filename_obstack);
       obstack_grow (&data_obstack, obstack_base (&filename_obstack),
-		    obstack_object_size (&filename_obstack));
+		    size);
 
       note_data = elfcore_write_note (obfd, note_data, note_size,
 				      "CORE", NT_FILE,
@@ -1574,32 +1580,39 @@ struct linux_collect_regset_section_cb_data
    regset in the corefile note section.  */
 
 static void
-linux_collect_regset_section_cb (const char *sect_name, int size,
-				 const struct regset *regset,
+linux_collect_regset_section_cb (const char *sect_name, int supply_size,
+				 int collect_size, const struct regset *regset,
 				 const char *human_name, void *cb_data)
 {
-  char *buf;
   struct linux_collect_regset_section_cb_data *data
     = (struct linux_collect_regset_section_cb_data *) cb_data;
+  bool variable_size_section = (regset != NULL
+				&& regset->flags & REGSET_VARIABLE_SIZE);
+
+  if (!variable_size_section)
+    gdb_assert (supply_size == collect_size);
 
   if (data->abort_iteration)
     return;
 
   gdb_assert (regset && regset->collect_regset);
 
-  buf = (char *) xmalloc (size);
-  regset->collect_regset (regset, data->regcache, -1, buf, size);
+  /* This is intentionally zero-initialized by using std::vector, so
+     that any padding bytes in the core file will show as 0.  */
+  std::vector<gdb_byte> buf (collect_size);
+
+  regset->collect_regset (regset, data->regcache, -1, buf.data (),
+			  collect_size);
 
   /* PRSTATUS still needs to be treated specially.  */
   if (strcmp (sect_name, ".reg") == 0)
     data->note_data = (char *) elfcore_write_prstatus
       (data->obfd, data->note_data, data->note_size, data->lwp,
-       gdb_signal_to_host (data->stop_signal), buf);
+       gdb_signal_to_host (data->stop_signal), buf.data ());
   else
     data->note_data = (char *) elfcore_write_register_note
       (data->obfd, data->note_data, data->note_size,
-       sect_name, buf, size);
-  xfree (buf);
+       sect_name, buf.data (), collect_size);
 
   if (data->note_data == NULL)
     data->abort_iteration = 1;
@@ -1626,9 +1639,9 @@ linux_collect_thread_registers (const struct regcache *regcache,
   data.abort_iteration = 0;
 
   /* For remote targets the LWP may not be available, so use the TID.  */
-  data.lwp = ptid_get_lwp (ptid);
+  data.lwp = ptid.lwp ();
   if (!data.lwp)
-    data.lwp = ptid_get_tid (ptid);
+    data.lwp = ptid.tid ();
 
   gdbarch_iterate_over_regset_sections (gdbarch,
 					linux_collect_regset_section_cb,
@@ -1656,7 +1669,7 @@ linux_get_siginfo_data (thread_info *thread, struct gdbarch *gdbarch)
 
   gdb::byte_vector buf (TYPE_LENGTH (siginfo_type));
 
-  bytes_read = target_read (&current_target, TARGET_OBJECT_SIGNAL_INFO, NULL,
+  bytes_read = target_read (current_top_target (), TARGET_OBJECT_SIGNAL_INFO, NULL,
 			    buf.data (), 0, TYPE_LENGTH (siginfo_type));
   if (bytes_read != TYPE_LENGTH (siginfo_type))
     buf.clear ();
@@ -1718,7 +1731,7 @@ linux_fill_prpsinfo (struct elf_internal_linux_prpsinfo *p)
   char filename[100];
   /* The basename of the executable.  */
   const char *basename;
-  char *infargs;
+  const char *infargs;
   /* Temporary buffer.  */
   char *tmpstr;
   /* The valid states of a process, according to the Linux kernel.  */
@@ -1739,7 +1752,7 @@ linux_fill_prpsinfo (struct elf_internal_linux_prpsinfo *p)
   gdb_assert (p != NULL);
 
   /* Obtaining PID and filename.  */
-  pid = ptid_get_pid (inferior_ptid);
+  pid = inferior_ptid.pid ();
   xsnprintf (filename, sizeof (filename), "/proc/%d/cmdline", (int) pid);
   /* The full name of the program which generated the corefile.  */
   gdb::unique_xmalloc_ptr<char> fname
@@ -1900,8 +1913,6 @@ linux_make_corefile_notes (struct gdbarch *gdbarch, bfd *obfd, int *note_size)
   struct linux_corefile_thread_data thread_args;
   struct elf_internal_linux_prpsinfo prpsinfo;
   char *note_data = NULL;
-  gdb_byte *auxv;
-  int auxv_len;
   struct thread_info *curr_thr, *signalled_thr, *thr;
 
   if (! gdbarch_iterate_over_regset_sections_p (gdbarch))
@@ -1955,7 +1966,7 @@ linux_make_corefile_notes (struct gdbarch *gdbarch, bfd *obfd, int *note_size)
     {
       if (thr == signalled_thr)
 	continue;
-      if (ptid_get_pid (thr->ptid) != ptid_get_pid (inferior_ptid))
+      if (thr->ptid.pid () != inferior_ptid.pid ())
 	continue;
 
       linux_corefile_thread (thr, &thread_args);
@@ -1966,13 +1977,13 @@ linux_make_corefile_notes (struct gdbarch *gdbarch, bfd *obfd, int *note_size)
     return NULL;
 
   /* Auxillary vector.  */
-  auxv_len = target_read_alloc (&current_target, TARGET_OBJECT_AUXV,
-				NULL, &auxv);
-  if (auxv_len > 0)
+  gdb::optional<gdb::byte_vector> auxv =
+    target_read_alloc (current_top_target (), TARGET_OBJECT_AUXV, NULL);
+  if (auxv && !auxv->empty ())
     {
       note_data = elfcore_write_note (obfd, note_data, note_size,
-				      "CORE", NT_AUXV, auxv, auxv_len);
-      xfree (auxv);
+				      "CORE", NT_AUXV, auxv->data (),
+				      auxv->size ());
 
       if (!note_data)
 	return NULL;
@@ -2250,7 +2261,7 @@ linux_vsyscall_range_raw (struct gdbarch *gdbarch, struct mem_range *range)
   char filename[100];
   long pid;
 
-  if (target_auxv_search (&current_target, AT_SYSINFO_EHDR, &range->start) <= 0)
+  if (target_auxv_search (current_top_target (), AT_SYSINFO_EHDR, &range->start) <= 0)
     return 0;
 
   /* It doesn't make sense to access the host's /proc when debugging a
@@ -2258,7 +2269,6 @@ linux_vsyscall_range_raw (struct gdbarch *gdbarch, struct mem_range *range)
      the vDSO.  */
   if (!target_has_execution)
     {
-      Elf_Internal_Phdr *phdrs;
       long phdrs_size;
       int num_phdrs, i;
 
@@ -2266,16 +2276,17 @@ linux_vsyscall_range_raw (struct gdbarch *gdbarch, struct mem_range *range)
       if (phdrs_size == -1)
 	return 0;
 
-      phdrs = (Elf_Internal_Phdr *) alloca (phdrs_size);
-      num_phdrs = bfd_get_elf_phdrs (core_bfd, phdrs);
+      gdb::unique_xmalloc_ptr<Elf_Internal_Phdr>
+	phdrs ((Elf_Internal_Phdr *) xmalloc (phdrs_size));
+      num_phdrs = bfd_get_elf_phdrs (core_bfd, phdrs.get ());
       if (num_phdrs == -1)
 	return 0;
 
       for (i = 0; i < num_phdrs; i++)
-	if (phdrs[i].p_type == PT_LOAD
-	    && phdrs[i].p_vaddr == range->start)
+	if (phdrs.get ()[i].p_type == PT_LOAD
+	    && phdrs.get ()[i].p_vaddr == range->start)
 	  {
-	    range->length = phdrs[i].p_memsz;
+	    range->length = phdrs.get ()[i].p_memsz;
 	    return 1;
 	  }
 
@@ -2440,14 +2451,14 @@ linux_displaced_step_location (struct gdbarch *gdbarch)
      local-store address and is thus not usable as displaced stepping
      location.  The auxiliary vector gets us the PowerPC-side entry
      point address instead.  */
-  if (target_auxv_search (&current_target, AT_ENTRY, &addr) <= 0)
+  if (target_auxv_search (current_top_target (), AT_ENTRY, &addr) <= 0)
     throw_error (NOT_SUPPORTED_ERROR,
 		 _("Cannot find AT_ENTRY auxiliary vector entry."));
 
   /* Make certain that the address points at real code, and not a
      function descriptor.  */
   addr = gdbarch_convert_from_func_ptr_addr (gdbarch, addr,
-					     &current_target);
+					     current_top_target ());
 
   /* Inferior calls also use the entry point as a breakpoint location.
      We don't want displaced stepping to interfere with those
@@ -2467,6 +2478,17 @@ show_use_coredump_filter (struct ui_file *file, int from_tty,
 {
   fprintf_filtered (file, _("Use of /proc/PID/coredump_filter file to generate"
 			    " corefiles is %s.\n"), value);
+}
+
+/* Display whether the gcore command is dumping mappings marked with
+   the VM_DONTDUMP flag.  */
+
+static void
+show_dump_excluded_mappings (struct ui_file *file, int from_tty,
+			     struct cmd_list_element *c, const char *value)
+{
+  fprintf_filtered (file, _("Dumping of mappings marked with the VM_DONTDUMP"
+			    " flag is %s.\n"), value);
 }
 
 /* To be called from the various GDB_OSABI_LINUX handlers for the
@@ -2503,8 +2525,8 @@ _initialize_linux_tdep (void)
   linux_inferior_data
     = register_inferior_data_with_cleanup (NULL, linux_inferior_data_cleanup);
   /* Observers used to invalidate the cache when needed.  */
-  observer_attach_inferior_exit (invalidate_linux_cache_inf);
-  observer_attach_inferior_appeared (invalidate_linux_cache_inf);
+  gdb::observers::inferior_exit.attach (invalidate_linux_cache_inf);
+  gdb::observers::inferior_appeared.attach (invalidate_linux_cache_inf);
 
   add_setshow_boolean_cmd ("use-coredump-filter", class_files,
 			   &use_coredump_filter, _("\
@@ -2516,5 +2538,17 @@ Use this command to set whether gcore should consider the contents\n\
 of /proc/PID/coredump_filter when generating the corefile.  For more information\n\
 about this file, refer to the manpage of core(5)."),
 			   NULL, show_use_coredump_filter,
+			   &setlist, &showlist);
+
+  add_setshow_boolean_cmd ("dump-excluded-mappings", class_files,
+			   &dump_excluded_mappings, _("\
+Set whether gcore should dump mappings marked with the VM_DONTDUMP flag."),
+			   _("\
+Show whether gcore should dump mappings marked with the VM_DONTDUMP flag."),
+			   _("\
+Use this command to set whether gcore should dump mappings marked with the\n\
+VM_DONTDUMP flag (\"dd\" in /proc/PID/smaps) when generating the corefile.  For\n\
+more information about this file, refer to the manpage of proc(5) and core(5)."),
+			   NULL, show_dump_excluded_mappings,
 			   &setlist, &showlist);
 }

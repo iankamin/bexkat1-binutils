@@ -1,6 +1,6 @@
 /* MI Command Set.
 
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2018 Free Software Foundation, Inc.
 
    Contributed by Cygnus Solutions (a Red Hat company).
 
@@ -52,7 +52,7 @@
 #include "linespec.h"
 #include "extension.h"
 #include "gdbcmd.h"
-#include "observer.h"
+#include "observable.h"
 #include "common/gdb_optional.h"
 #include "common/byte-vector.h"
 
@@ -63,6 +63,7 @@
 #include "common/rsp-low.h"
 #include <algorithm>
 #include <set>
+#include <map>
 
 enum
   {
@@ -95,8 +96,8 @@ static void mi_execute_cli_command (const char *cmd, int args_p,
 				    const char *args);
 static void mi_execute_async_cli_command (const char *cli_command,
 					  char **argv, int argc);
-static int register_changed_p (int regnum, struct regcache *,
-			       struct regcache *);
+static bool register_changed_p (int regnum, readonly_detached_regcache *,
+			       readonly_detached_regcache *);
 static void output_register (struct frame_info *, int regnum, int format,
 			     int skip_unavailable);
 
@@ -108,7 +109,7 @@ static int mi_async = 0;
 static int mi_async_1 = 0;
 
 static void
-set_mi_async_command (char *args, int from_tty,
+set_mi_async_command (const char *args, int from_tty,
 		      struct cmd_list_element *c)
 {
   if (have_live_inferiors ())
@@ -242,13 +243,13 @@ mi_cmd_exec_jump (const char *args, char **argv, int argc)
 static void
 proceed_thread (struct thread_info *thread, int pid)
 {
-  if (!is_stopped (thread->ptid))
+  if (thread->state != THREAD_STOPPED)
     return;
 
-  if (pid != 0 && ptid_get_pid (thread->ptid) != pid)
+  if (pid != 0 && thread->ptid.pid () != pid)
     return;
 
-  switch_to_thread (thread->ptid);
+  switch_to_thread (thread);
   clear_proceed_status (0);
   proceed ((CORE_ADDR) -1, GDB_SIGNAL_DEFAULT);
 }
@@ -265,7 +266,7 @@ proceed_thread_callback (struct thread_info *thread, void *arg)
 static void
 exec_continue (char **argv, int argc)
 {
-  prepare_execution_command (&current_target, mi_async_p ());
+  prepare_execution_command (current_top_target (), mi_async_p ());
 
   if (non_stop)
     {
@@ -344,10 +345,10 @@ interrupt_thread_callback (struct thread_info *thread, void *arg)
 {
   int pid = *(int *)arg;
 
-  if (!is_running (thread->ptid))
+  if (thread->state != THREAD_RUNNING)
     return 0;
 
-  if (ptid_get_pid (thread->ptid) != pid)
+  if (thread->ptid.pid () != pid)
     return 0;
 
   target_stop (thread->ptid);
@@ -404,25 +405,20 @@ run_one_inferior (struct inferior *inf, void *arg)
   int start_p = *(int *) arg;
   const char *run_cmd = start_p ? "start" : "run";
   struct target_ops *run_target = find_run_target ();
-  int async_p = mi_async && run_target->to_can_async_p (run_target);
+  int async_p = mi_async && run_target->can_async_p ();
 
   if (inf->pid != 0)
     {
-      if (inf->pid != ptid_get_pid (inferior_ptid))
-	{
-	  struct thread_info *tp;
+      thread_info *tp = any_thread_of_inferior (inf);
+      if (tp == NULL)
+	error (_("Inferior has no threads."));
 
-	  tp = any_thread_of_process (inf->pid);
-	  if (!tp)
-	    error (_("Inferior has no threads."));
-
-	  switch_to_thread (tp->ptid);
-	}
+      switch_to_thread (tp);
     }
   else
     {
       set_current_inferior (inf);
-      switch_to_thread (null_ptid);
+      switch_to_no_thread ();
       set_current_program_space (inf->pspace);
     }
   mi_execute_cli_command (run_cmd, async_p,
@@ -478,7 +474,7 @@ mi_cmd_exec_run (const char *command, char **argv, int argc)
     {
       const char *run_cmd = start_p ? "start" : "run";
       struct target_ops *run_target = find_run_target ();
-      int async_p = mi_async && run_target->to_can_async_p (run_target);
+      int async_p = mi_async && run_target->can_async_p ();
 
       mi_execute_cli_command (run_cmd, async_p,
 			      async_p ? "&" : NULL);
@@ -491,7 +487,7 @@ find_thread_of_process (struct thread_info *ti, void *p)
 {
   int pid = *(int *)p;
 
-  if (ptid_get_pid (ti->ptid) == pid && !is_exited (ti->ptid))
+  if (ti->ptid.pid () == pid && ti->state != THREAD_EXITED)
     return 1;
 
   return 0;
@@ -539,7 +535,7 @@ mi_cmd_target_detach (const char *command, char **argv, int argc)
       if (!tp)
 	error (_("Thread group is empty"));
 
-      switch_to_thread (tp->ptid);
+      switch_to_thread (tp);
     }
 
   detach_command (NULL, 0);
@@ -570,10 +566,10 @@ mi_cmd_thread_select (const char *command, char **argv, int argc)
 			       USER_SELECTED_THREAD | USER_SELECTED_FRAME);
 
   /* Notify if the thread has effectively changed.  */
-  if (!ptid_equal (inferior_ptid, previous_ptid))
+  if (inferior_ptid != previous_ptid)
     {
-      observer_notify_user_selected_context_changed (USER_SELECTED_THREAD
-						     | USER_SELECTED_FRAME);
+      gdb::observers::user_selected_context_changed.notify
+	(USER_SELECTED_THREAD | USER_SELECTED_FRAME);
     }
 }
 
@@ -627,7 +623,7 @@ collect_cores (struct thread_info *ti, void *xdata)
 {
   struct collect_cores_data *data = (struct collect_cores_data *) xdata;
 
-  if (ptid_get_pid (ti->ptid) == data->pid)
+  if (ti->ptid.pid () == data->pid)
     {
       int core = target_core_of_thread (ti->ptid);
 
@@ -709,88 +705,40 @@ output_cores (struct ui_out *uiout, const char *field_name, const char *xcores)
 }
 
 static void
-free_vector_of_osdata_items (splay_tree_value xvalue)
-{
-  VEC (osdata_item_s) *value = (VEC (osdata_item_s) *) xvalue;
-
-  /* We don't free the items itself, it will be done separately.  */
-  VEC_free (osdata_item_s, value);
-}
-
-static int
-splay_tree_int_comparator (splay_tree_key xa, splay_tree_key xb)
-{
-  int a = xa;
-  int b = xb;
-
-  return a - b;
-}
-
-static void
 list_available_thread_groups (const std::set<int> &ids, int recurse)
 {
-  struct osdata *data;
-  struct osdata_item *item;
-  int ix_items;
   struct ui_out *uiout = current_uiout;
-  struct cleanup *cleanup;
 
-  /* This keeps a map from integer (pid) to VEC (struct osdata_item *)*
-     The vector contains information about all threads for the given pid.
-     This is assigned an initial value to avoid "may be used uninitialized"
-     warning from gcc.  */
-  gdb_splay_tree_up tree;
+  /* This keeps a map from integer (pid) to vector of struct osdata_item.
+     The vector contains information about all threads for the given pid.  */
+  std::map<int, std::vector<osdata_item>> tree;
 
   /* get_osdata will throw if it cannot return data.  */
-  data = get_osdata ("processes");
-  cleanup = make_cleanup_osdata_free (data);
+  std::unique_ptr<osdata> data = get_osdata ("processes");
 
   if (recurse)
     {
-      struct osdata *threads = get_osdata ("threads");
+      std::unique_ptr<osdata> threads = get_osdata ("threads");
 
-      make_cleanup_osdata_free (threads);
-      tree.reset (splay_tree_new (splay_tree_int_comparator,
-				  NULL,
-				  free_vector_of_osdata_items));
-
-      for (ix_items = 0;
-	   VEC_iterate (osdata_item_s, threads->items,
-			ix_items, item);
-	   ix_items++)
+      for (const osdata_item &item : threads->items)
 	{
-	  const char *pid = get_osdata_column (item, "pid");
-	  int pid_i = strtoul (pid, NULL, 0);
-	  VEC (osdata_item_s) *vec = 0;
+	  const std::string *pid = get_osdata_column (item, "pid");
+	  int pid_i = strtoul (pid->c_str (), NULL, 0);
 
-	  splay_tree_node n = splay_tree_lookup (tree.get (), pid_i);
-	  if (!n)
-	    {
-	      VEC_safe_push (osdata_item_s, vec, item);
-	      splay_tree_insert (tree.get (), pid_i, (splay_tree_value)vec);
-	    }
-	  else
-	    {
-	      vec = (VEC (osdata_item_s) *) n->value;
-	      VEC_safe_push (osdata_item_s, vec, item);
-	      n->value = (splay_tree_value) vec;
-	    }
+	  tree[pid_i].push_back (item);
 	}
     }
 
   ui_out_emit_list list_emitter (uiout, "groups");
 
-  for (ix_items = 0;
-       VEC_iterate (osdata_item_s, data->items,
-		    ix_items, item);
-       ix_items++)
+  for (const osdata_item &item : data->items)
     {
-      const char *pid = get_osdata_column (item, "pid");
-      const char *cmd = get_osdata_column (item, "command");
-      const char *user = get_osdata_column (item, "user");
-      const char *cores = get_osdata_column (item, "cores");
+      const std::string *pid = get_osdata_column (item, "pid");
+      const std::string *cmd = get_osdata_column (item, "command");
+      const std::string *user = get_osdata_column (item, "user");
+      const std::string *cores = get_osdata_column (item, "cores");
 
-      int pid_i = strtoul (pid, NULL, 0);
+      int pid_i = strtoul (pid->c_str (), NULL, 0);
 
       /* At present, the target will return all available processes
 	 and if information about specific ones was required, we filter
@@ -800,43 +748,37 @@ list_available_thread_groups (const std::set<int> &ids, int recurse)
 
       ui_out_emit_tuple tuple_emitter (uiout, NULL);
 
-      uiout->field_fmt ("id", "%s", pid);
+      uiout->field_fmt ("id", "%s", pid->c_str ());
       uiout->field_string ("type", "process");
       if (cmd)
-	uiout->field_string ("description", cmd);
+	uiout->field_string ("description", cmd->c_str ());
       if (user)
-	uiout->field_string ("user", user);
+	uiout->field_string ("user", user->c_str ());
       if (cores)
-	output_cores (uiout, "cores", cores);
+	output_cores (uiout, "cores", cores->c_str ());
 
       if (recurse)
 	{
-	  splay_tree_node n = splay_tree_lookup (tree.get (), pid_i);
-	  if (n)
+	  auto n = tree.find (pid_i);
+	  if (n != tree.end ())
 	    {
-	      VEC (osdata_item_s) *children = (VEC (osdata_item_s) *) n->value;
-	      struct osdata_item *child;
-	      int ix_child;
+	      std::vector<osdata_item> &children = n->second;
 
 	      ui_out_emit_list thread_list_emitter (uiout, "threads");
 
-	      for (ix_child = 0;
-		   VEC_iterate (osdata_item_s, children, ix_child, child);
-		   ++ix_child)
+	      for (const osdata_item &child : children)
 		{
-		  ui_out_emit_tuple tuple_emitter (uiout, NULL);
-		  const char *tid = get_osdata_column (child, "tid");
-		  const char *tcore = get_osdata_column (child, "core");
+		  ui_out_emit_tuple inner_tuple_emitter (uiout, NULL);
+		  const std::string *tid = get_osdata_column (child, "tid");
+		  const std::string *tcore = get_osdata_column (child, "core");
 
-		  uiout->field_string ("id", tid);
+		  uiout->field_string ("id", tid->c_str ());
 		  if (tcore)
-		    uiout->field_string ("core", tcore);
+		    uiout->field_string ("core", tcore->c_str ());
 		}
 	    }
 	}
     }
-
-  do_cleanups (cleanup);
 }
 
 void
@@ -948,7 +890,7 @@ mi_cmd_data_list_register_names (const char *command, char **argv, int argc)
      debugged.  */
 
   gdbarch = get_current_arch ();
-  numregs = gdbarch_num_regs (gdbarch) + gdbarch_num_pseudo_regs (gdbarch);
+  numregs = gdbarch_num_cooked_regs (gdbarch);
 
   ui_out_emit_list list_emitter (uiout, "register-names");
 
@@ -984,11 +926,11 @@ mi_cmd_data_list_register_names (const char *command, char **argv, int argc)
 void
 mi_cmd_data_list_changed_registers (const char *command, char **argv, int argc)
 {
-  static std::unique_ptr<struct regcache> this_regs;
+  static std::unique_ptr<readonly_detached_regcache> this_regs;
   struct ui_out *uiout = current_uiout;
-  std::unique_ptr<struct regcache> prev_regs;
+  std::unique_ptr<readonly_detached_regcache> prev_regs;
   struct gdbarch *gdbarch;
-  int regnum, numregs, changed;
+  int regnum, numregs;
   int i;
 
   /* The last time we visited this function, the current frame's
@@ -1007,7 +949,7 @@ mi_cmd_data_list_changed_registers (const char *command, char **argv, int argc)
      debugged.  */
 
   gdbarch = this_regs->arch ();
-  numregs = gdbarch_num_regs (gdbarch) + gdbarch_num_pseudo_regs (gdbarch);
+  numregs = gdbarch_num_cooked_regs (gdbarch);
 
   ui_out_emit_list list_emitter (uiout, "changed-registers");
 
@@ -1021,12 +963,9 @@ mi_cmd_data_list_changed_registers (const char *command, char **argv, int argc)
 	  if (gdbarch_register_name (gdbarch, regnum) == NULL
 	      || *(gdbarch_register_name (gdbarch, regnum)) == '\0')
 	    continue;
-	  changed = register_changed_p (regnum, prev_regs.get (),
-					this_regs.get ());
-	  if (changed < 0)
-	    error (_("-data-list-changed-registers: "
-		     "Unable to read register contents."));
-	  else if (changed)
+
+	  if (register_changed_p (regnum, prev_regs.get (),
+				  this_regs.get ()))
 	    uiout->field_int (NULL, regnum);
 	}
     }
@@ -1041,12 +980,8 @@ mi_cmd_data_list_changed_registers (const char *command, char **argv, int argc)
 	  && gdbarch_register_name (gdbarch, regnum) != NULL
 	  && *gdbarch_register_name (gdbarch, regnum) != '\000')
 	{
-	  changed = register_changed_p (regnum, prev_regs.get (),
-					this_regs.get ());
-	  if (changed < 0)
-	    error (_("-data-list-changed-registers: "
-		     "Unable to read register contents."));
-	  else if (changed)
+	  if (register_changed_p (regnum, prev_regs.get (),
+				  this_regs.get ()))
 	    uiout->field_int (NULL, regnum);
 	}
       else
@@ -1054,18 +989,17 @@ mi_cmd_data_list_changed_registers (const char *command, char **argv, int argc)
     }
 }
 
-static int
-register_changed_p (int regnum, struct regcache *prev_regs,
-		    struct regcache *this_regs)
+static bool
+register_changed_p (int regnum, readonly_detached_regcache *prev_regs,
+		    readonly_detached_regcache *this_regs)
 {
   struct gdbarch *gdbarch = this_regs->arch ();
   struct value *prev_value, *this_value;
-  int ret;
 
   /* First time through or after gdbarch change consider all registers
      as changed.  */
   if (!prev_regs || prev_regs->arch () != gdbarch)
-    return 1;
+    return true;
 
   /* Get register contents and compare.  */
   prev_value = prev_regs->cooked_read_value (regnum);
@@ -1073,13 +1007,11 @@ register_changed_p (int regnum, struct regcache *prev_regs,
   gdb_assert (prev_value != NULL);
   gdb_assert (this_value != NULL);
 
-  ret = value_contents_eq (prev_value, 0, this_value, 0,
-			   register_size (gdbarch, regnum)) == 0;
+  auto ret = !value_contents_eq (prev_value, 0, this_value, 0,
+				 register_size (gdbarch, regnum));
 
   release_value (prev_value);
   release_value (this_value);
-  value_free (prev_value);
-  value_free (this_value);
   return ret;
 }
 
@@ -1144,7 +1076,7 @@ mi_cmd_data_list_register_values (const char *command, char **argv, int argc)
 
   frame = get_selected_frame (NULL);
   gdbarch = get_frame_arch (frame);
-  numregs = gdbarch_num_regs (gdbarch) + gdbarch_num_pseudo_regs (gdbarch);
+  numregs = gdbarch_num_cooked_regs (gdbarch);
 
   ui_out_emit_list list_emitter (uiout, "register-values");
 
@@ -1232,7 +1164,7 @@ mi_cmd_data_write_register_values (const char *command, char **argv, int argc)
 
   regcache = get_current_regcache ();
   gdbarch = regcache->arch ();
-  numregs = gdbarch_num_regs (gdbarch) + gdbarch_num_pseudo_regs (gdbarch);
+  numregs = gdbarch_num_cooked_regs (gdbarch);
 
   if (argc == 0)
     error (_("-data-write-register-values: Usage: -data-write-register-"
@@ -1416,11 +1348,8 @@ mi_cmd_data_read_memory (const char *command, char **argv, int argc)
 
   gdb::byte_vector mbuf (total_bytes);
 
-  /* Dispatch memory reads to the topmost target, not the flattened
-     current_target.  */
-  nr_bytes = target_read (current_target.beneath,
-			  TARGET_OBJECT_MEMORY, NULL, mbuf.data (),
-			  addr, total_bytes);
+  nr_bytes = target_read (current_top_target (), TARGET_OBJECT_MEMORY, NULL,
+			  mbuf.data (), addr, total_bytes);
   if (nr_bytes <= 0)
     error (_("Unable to read memory."));
 
@@ -1447,7 +1376,7 @@ mi_cmd_data_read_memory (const char *command, char **argv, int argc)
       {
 	int col;
 	int col_byte;
-	struct value_print_options opts;
+	struct value_print_options print_opts;
 
 	ui_out_emit_tuple tuple_emitter (uiout, NULL);
 	uiout->field_core_addr ("addr", gdbarch, addr + row_byte);
@@ -1455,7 +1384,7 @@ mi_cmd_data_read_memory (const char *command, char **argv, int argc)
 	   row_byte); */
 	{
 	  ui_out_emit_list list_data_emitter (uiout, "data");
-	  get_formatted_print_options (&opts, word_format);
+	  get_formatted_print_options (&print_opts, word_format);
 	  for (col = 0, col_byte = row_byte;
 	       col < nr_cols;
 	       col++, col_byte += word_size)
@@ -1467,8 +1396,8 @@ mi_cmd_data_read_memory (const char *command, char **argv, int argc)
 	      else
 		{
 		  stream.clear ();
-		  print_scalar_formatted (&mbuf[col_byte], word_type, &opts,
-					  word_asize, &stream);
+		  print_scalar_formatted (&mbuf[col_byte], word_type,
+					  &print_opts, word_asize, &stream);
 		  uiout->field_stream (NULL, stream);
 		}
 	    }
@@ -1539,7 +1468,7 @@ mi_cmd_data_read_memory_bytes (const char *command, char **argv, int argc)
   length = atol (argv[1]);
 
   std::vector<memory_read_result> result
-    = read_memory_robust (current_target.beneath, addr, length);
+    = read_memory_robust (current_top_target (), addr, length);
 
   if (result.size () == 0)
     error (_("Unable to read memory."));
@@ -1754,6 +1683,7 @@ mi_cmd_list_features (const char *command, char **argv, int argc)
       uiout->field_string (NULL, "info-gdb-mi-command");
       uiout->field_string (NULL, "undefined-command-error-code");
       uiout->field_string (NULL, "exec-run-start-option");
+      uiout->field_string (NULL, "data-disassemble-a-option");
 
       if (ext_lang_initialized_p (get_ext_lang_defn (EXT_LANG_PYTHON)))
 	uiout->field_string (NULL, "python");
@@ -1837,8 +1767,11 @@ mi_cmd_remove_inferior (const char *command, char **argv, int argc)
 
       set_current_inferior (new_inferior);
       if (new_inferior->pid != 0)
-	tp = any_thread_of_process (new_inferior->pid);
-      switch_to_thread (tp ? tp->ptid : null_ptid);
+	tp = any_thread_of_inferior (new_inferior);
+      if (tp != NULL)
+	switch_to_thread (tp);
+      else
+	switch_to_no_thread ();
       set_current_program_space (new_inferior->pspace);
     }
 
@@ -2059,7 +1992,7 @@ mi_execute_command (const char *cmd, int from_tty)
 
       if (/* The notifications are only output when the top-level
 	     interpreter (specified on the command line) is MI.  */
-	  interp_ui_out (top_level_interpreter ())->is_mi_like_p ()
+	  top_level_interpreter ()->interp_ui_out ()->is_mi_like_p ()
 	  /* Don't try report anything if there are no threads --
 	     the program is dead.  */
 	  && thread_count () != 0
@@ -2067,16 +2000,15 @@ mi_execute_command (const char *cmd, int from_tty)
 	     again.  */
 	  && !command_notifies_uscc_observer (command.get ()))
 	{
-	  struct mi_interp *mi = (struct mi_interp *) top_level_interpreter ();
 	  int report_change = 0;
 
 	  if (command->thread == -1)
 	    {
-	      report_change = (!ptid_equal (previous_ptid, null_ptid)
-			       && !ptid_equal (inferior_ptid, previous_ptid)
-			       && !ptid_equal (inferior_ptid, null_ptid));
+	      report_change = (previous_ptid != null_ptid
+			       && inferior_ptid != previous_ptid
+			       && inferior_ptid != null_ptid);
 	    }
-	  else if (!ptid_equal (inferior_ptid, null_ptid))
+	  else if (inferior_ptid != null_ptid)
 	    {
 	      struct thread_info *ti = inferior_thread ();
 
@@ -2085,8 +2017,8 @@ mi_execute_command (const char *cmd, int from_tty)
 
 	  if (report_change)
 	    {
-		observer_notify_user_selected_context_changed
-		  (USER_SELECTED_THREAD | USER_SELECTED_FRAME);
+	      gdb::observers::user_selected_context_changed.notify
+		(USER_SELECTED_THREAD | USER_SELECTED_FRAME);
 	    }
 	}
     }
@@ -2124,22 +2056,25 @@ mi_cmd_execute (struct mi_parse *parse)
 	 provide --thread if it wishes to operate on a specific
 	 thread.  */
       if (inf->pid != 0)
-	tp = any_live_thread_of_process (inf->pid);
-      switch_to_thread (tp ? tp->ptid : null_ptid);
+	tp = any_live_thread_of_inferior (inf);
+      if (tp != NULL)
+	switch_to_thread (tp);
+      else
+	switch_to_no_thread ();
       set_current_program_space (inf->pspace);
     }
 
   if (parse->thread != -1)
     {
-      struct thread_info *tp = find_thread_global_id (parse->thread);
+      thread_info *tp = find_thread_global_id (parse->thread);
 
-      if (!tp)
+      if (tp == NULL)
 	error (_("Invalid thread id: %d"), parse->thread);
 
-      if (is_exited (tp->ptid))
+      if (tp->state == THREAD_EXITED)
 	error (_("Thread id: %d has terminated"), parse->thread);
 
-      switch_to_thread (tp->ptid);
+      switch_to_thread (tp);
     }
 
   if (parse->frame != -1)
@@ -2206,7 +2141,7 @@ mi_execute_cli_command (const char *cmd, int args_p, const char *args)
 	/* FIXME: gdb_???? */
 	fprintf_unfiltered (gdb_stdout, "cli=%s run=%s\n",
 			    cmd, run.c_str ());
-      execute_command (&run[0], 0 /* from_tty */ );
+      execute_command (run.c_str (), 0 /* from_tty */ );
     }
 }
 
@@ -2220,7 +2155,7 @@ mi_execute_async_cli_command (const char *cli_command, char **argv, int argc)
   if (mi_async_p ())
     run += "&";
 
-  execute_command (&run[0], 0 /* from_tty */ );
+  execute_command (run.c_str (), 0 /* from_tty */ );
 }
 
 void
@@ -2634,6 +2569,7 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
 	  break;
 	case REGISTERS_FORMAT:
 	  registers_format = oarg[0];
+	  break;
 	case MEMORY_CONTENTS:
 	  memory_contents = 1;
 	  break;
@@ -2666,8 +2602,6 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
 
   /* Explicitly wholly collected variables.  */
   {
-    int i;
-
     ui_out_emit_list list_emitter (uiout, "explicit-variables");
     const std::vector<std::string> &wholly_collected
       = clist->wholly_collected ();
@@ -2680,9 +2614,6 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
 
   /* Computed expressions.  */
   {
-    char *p;
-    int i;
-
     ui_out_emit_list list_emitter (uiout, "computed-expressions");
 
     const std::vector<std::string> &computed = clist->computed ();
@@ -2707,7 +2638,7 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
 
     frame = get_selected_frame (NULL);
     gdbarch = get_frame_arch (frame);
-    numregs = gdbarch_num_regs (gdbarch) + gdbarch_num_pseudo_regs (gdbarch);
+    numregs = gdbarch_num_cooked_regs (gdbarch);
 
     for (regnum = 0; regnum < numregs; regnum++)
       {
@@ -2733,7 +2664,7 @@ mi_cmd_trace_frame_collected (const char *command, char **argv, int argc)
 
 	if (tsv != NULL)
 	  {
-	    uiout->field_fmt ("name", "$%s", tsv->name);
+	    uiout->field_fmt ("name", "$%s", tsv->name.c_str ());
 
 	    tsv->value_known = target_get_trace_state_variable_value (tsv->number,
 								      &tsv->value);

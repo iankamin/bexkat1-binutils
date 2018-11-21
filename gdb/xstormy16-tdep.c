@@ -1,6 +1,6 @@
 /* Target-dependent code for the Sanyo Xstormy16a (LC590000) processor.
 
-   Copyright (C) 2001-2017 Free Software Foundation, Inc.
+   Copyright (C) 2001-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -163,7 +163,7 @@ xstormy16_extract_return_value (struct type *type, struct regcache *regcache,
   int i, regnum = E_1ST_ARG_REGNUM;
 
   for (i = 0; i < len; i += xstormy16_reg_size)
-    regcache_raw_read (regcache, regnum++, valbuf + i);
+    regcache->raw_read (regnum++, valbuf + i);
 }
 
 /* Function: xstormy16_store_return_value
@@ -181,7 +181,7 @@ xstormy16_store_return_value (struct type *type, struct regcache *regcache,
       gdb_byte buf[xstormy16_reg_size];
       memset (buf, 0, xstormy16_reg_size);
       memcpy (buf, valbuf, 1);
-      regcache_raw_write (regcache, E_1ST_ARG_REGNUM, buf);
+      regcache->raw_write (E_1ST_ARG_REGNUM, buf);
     }
   else
     {
@@ -189,7 +189,7 @@ xstormy16_store_return_value (struct type *type, struct regcache *regcache,
       int i, regnum = E_1ST_ARG_REGNUM;
 
       for (i = 0; i < len; i += xstormy16_reg_size)
-        regcache_raw_write (regcache, regnum++, valbuf + i);
+        regcache->raw_write (regnum++, valbuf + i);
     }
 }
 
@@ -226,7 +226,8 @@ xstormy16_push_dummy_call (struct gdbarch *gdbarch,
 			   struct regcache *regcache,
 			   CORE_ADDR bp_addr, int nargs,
 			   struct value **args,
-			   CORE_ADDR sp, int struct_return,
+			   CORE_ADDR sp,
+			   function_call_return_method return_method,
 			   CORE_ADDR struct_addr)
 {
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
@@ -234,12 +235,11 @@ xstormy16_push_dummy_call (struct gdbarch *gdbarch,
   int argreg = E_1ST_ARG_REGNUM;
   int i, j;
   int typelen, slacklen;
-  const gdb_byte *val;
   gdb_byte buf[xstormy16_pc_size];
 
-  /* If struct_return is true, then the struct return address will
-     consume one argument-passing register.  */
-  if (struct_return)
+  /* If returning a struct using target ABI method, then the struct return
+     address will consume one argument-passing register.  */
+  if (return_method == return_method_struct)
     {
       regcache_cooked_write_unsigned (regcache, E_PTR_RET_REGNUM, struct_addr);
       argreg++;
@@ -257,7 +257,7 @@ xstormy16_push_dummy_call (struct gdbarch *gdbarch,
 	break;
 
       /* Put argument into registers wordwise.  */
-      val = value_contents (args[i]);
+      const gdb_byte *val = value_contents (args[i]);
       for (j = 0; j < typelen; j += xstormy16_reg_size)
 	{
 	  ULONGEST regval;

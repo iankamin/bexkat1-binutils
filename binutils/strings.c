@@ -1,5 +1,5 @@
 /* strings -- print the strings of printable characters in files
-   Copyright (C) 1993-2017 Free Software Foundation, Inc.
+   Copyright (C) 1993-2018 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -125,7 +125,7 @@ static struct option long_options[] =
   {"print-file-name", no_argument, NULL, 'f'},
   {"bytes", required_argument, NULL, 'n'},
   {"radix", required_argument, NULL, 't'},
-  {"include-all-whitespace", required_argument, NULL, 'w'},
+  {"include-all-whitespace", no_argument, NULL, 'w'},
   {"encoding", required_argument, NULL, 'e'},
   {"target", required_argument, NULL, 'T'},
   {"output-separator", required_argument, NULL, 's'},
@@ -287,7 +287,8 @@ main (int argc, char **argv)
       usage (stderr, 1);
     }
 
-  bfd_init ();
+  if (bfd_init () != BFD_INIT_MAGIC)
+    fatal (_("fatal error: libbfd ABI mismatch"));
   set_default_bfd_target ();
 
   if (optind >= argc)
@@ -539,9 +540,48 @@ print_strings (const char *filename, FILE *stream, file_ptr address,
 	      free (buf);
 	      return;
 	    }
+
 	  if (! STRING_ISGRAPHIC (c))
-	    /* Found a non-graphic.  Try again starting with next char.  */
-	    goto tryline;
+	    {
+	      /* Found a non-graphic. Try again starting with next char.  */
+	      if (encoding_bytes > 1)
+		{
+		  /* In case of multibyte encodings rewind using magic buffer.  */
+		  if (magiccount == 0)
+		    {
+		      /* If no magic buffer exists: use memory of c.  */
+		      switch (encoding)
+			{
+			default:
+			  break;
+			case 'b':
+			  c = c & 0xff;
+			  magiccount += 1;
+			  break;
+			case 'l':
+			case 'L':
+			  c = c >> 8;
+			  magiccount += (encoding_bytes -1);
+			  break;
+			case 'B':
+			  c = (( c & 0xff0000) >> 16) | ( c & 0xff00)
+			    | (( c & 0xff) << 16);
+			  magiccount += 3;
+			  break;
+			}
+		      magic = (char *) &c;
+		    }
+		  else
+		    {
+		      /* If magic buffer exists: rewind.  */
+		      magic = magic - (encoding_bytes -1);
+		    }
+
+		  address = address - (encoding_bytes -1);
+		}
+
+	      goto tryline;
+	    }
 	  buf[i] = c;
 	}
 
@@ -621,7 +661,43 @@ print_strings (const char *filename, FILE *stream, file_ptr address,
 	  if (c == EOF)
 	    break;
 	  if (! STRING_ISGRAPHIC (c))
-	    break;
+	    {
+	      if (encoding_bytes > 1)
+		{
+		  /* In case of multibyte encodings rewind using magic buffer.  */
+		  if (magiccount == 0)
+		    {
+		      /* If no magic buffer exists: use memory of c.  */
+		      switch (encoding)
+			{
+			default:
+			  break;
+			case 'b':
+			  c = c & 0xff;
+			  magiccount += 1;
+			  break;
+			case 'l':
+			case 'L':
+			  c = c >> 8;
+			  magiccount += (encoding_bytes -1);
+			  break;
+			case 'B':
+			  c = (( c & 0xff0000) >> 16) | ( c & 0xff00)
+			    | (( c & 0xff) << 16);
+			  magiccount += 3;
+			  break;
+			}
+		      magic = (char *) &c;
+		    }
+		  else
+		    {
+		      /* If magic buffer exists: rewind.  */
+		      magic = magic - (encoding_bytes -1);
+		    }
+		  address = address - (encoding_bytes -1);
+		}
+	      break;
+	    }
 	  putchar (c);
 	}
 

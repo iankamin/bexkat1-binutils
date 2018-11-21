@@ -1,6 +1,6 @@
 /* Target dependent code for ARC arhitecture, for GDB.
 
-   Copyright 2005-2017 Free Software Foundation, Inc.
+   Copyright 2005-2018 Free Software Foundation, Inc.
    Contributed by Synopsys Inc.
 
    This file is part of GDB.
@@ -33,7 +33,7 @@
 
 /* ARC header files.  */
 #include "opcode/arc.h"
-#include "opcodes/arc-dis.h"
+#include "../opcodes/arc-dis.h"
 #include "arc-tdep.h"
 
 /* Standard headers.  */
@@ -592,7 +592,8 @@ arc_dummy_id (struct gdbarch *gdbarch, struct frame_info *this_frame)
 static CORE_ADDR
 arc_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 		     struct regcache *regcache, CORE_ADDR bp_addr, int nargs,
-		     struct value **args, CORE_ADDR sp, int struct_return,
+		     struct value **args, CORE_ADDR sp,
+		     function_call_return_method return_method,
 		     CORE_ADDR struct_addr)
 {
   if (arc_debug)
@@ -607,7 +608,7 @@ arc_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
      value return?  If so, struct_addr is the address of the reserved space for
      the return structure to be written on the stack, and that address is
      passed to that function as a hidden first argument.  */
-  if (struct_return)
+  if (return_method == return_method_struct)
     {
       /* Pass the return address in the first argument register.  */
       regcache_cooked_write_unsigned (regcache, arg_reg, struct_addr);
@@ -664,7 +665,7 @@ arc_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 
 	  /* Note we don't use write_unsigned here, since that would convert
 	     the byte order, but we are already in the correct byte order.  */
-	  regcache_cooked_write (regcache, arg_reg, data);
+	  regcache->cooked_write (arg_reg, data);
 
 	  data += ARC_REGISTER_SIZE;
 	  total_space -= ARC_REGISTER_SIZE;
@@ -1957,6 +1958,15 @@ arc_tdesc_init (struct gdbarch_info info, const struct target_desc **tdesc,
   return TRUE;
 }
 
+/* Implement the type_align gdbarch function.  */
+
+static ULONGEST
+arc_type_align (struct gdbarch *gdbarch, struct type *type)
+{
+  type = check_typedef (type);
+  return std::min<ULONGEST> (4, TYPE_LENGTH (type));
+}
+
 /* Implement the "init" gdbarch method.  */
 
 static struct gdbarch *
@@ -1982,7 +1992,7 @@ arc_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   set_gdbarch_int_bit (gdbarch, 32);
   set_gdbarch_long_bit (gdbarch, 32);
   set_gdbarch_long_long_bit (gdbarch, 64);
-  set_gdbarch_long_long_align_bit (gdbarch, 32);
+  set_gdbarch_type_align (gdbarch, arc_type_align);
   set_gdbarch_float_bit (gdbarch, 32);
   set_gdbarch_float_format (gdbarch, floatformats_ieee_single);
   set_gdbarch_double_bit (gdbarch, 64);

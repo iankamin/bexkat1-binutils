@@ -1,6 +1,6 @@
 /* Call module for 'compile' command.
 
-   Copyright (C) 2014-2017 Free Software Foundation, Inc.
+   Copyright (C) 2014-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -99,7 +99,7 @@ do_module_cleanup (void *arg, int registers_valid)
   unlink (data->source_file);
   xfree (data->source_file);
 
-  munmap_list_free (data->munmap_list_head);
+  delete data->munmap_list_head;
 
   /* Delete the .o file.  */
   unlink (data->objfile_name_string);
@@ -116,8 +116,6 @@ void
 compile_object_run (struct compile_module *module)
 {
   struct value *func_val;
-  struct frame_id dummy_id;
-  struct cleanup *cleanups;
   struct do_module_cleanup *data;
   const char *objfile_name_s = objfile_name (module->objfile);
   int dtor_found, executed = 0;
@@ -154,7 +152,7 @@ compile_object_run (struct compile_module *module)
 
       gdb_assert (TYPE_CODE (func_type) == TYPE_CODE_FUNC);
       func_val = value_from_pointer (lookup_pointer_type (func_type),
-				   BLOCK_START (SYMBOL_BLOCK_VALUE (func_sym)));
+				   BLOCK_ENTRY_PC (SYMBOL_BLOCK_VALUE (func_sym)));
 
       vargs = XALLOCAVEC (struct value *, TYPE_NFIELDS (func_type));
       if (TYPE_NFIELDS (func_type) >= 1)

@@ -1,6 +1,6 @@
 /* TUI support I/O functions.
 
-   Copyright (C) 1998-2017 Free Software Foundation, Inc.
+   Copyright (C) 1998-2018 Free Software Foundation, Inc.
 
    Contributed by Hewlett-Packard Company.
 
@@ -46,22 +46,12 @@
    "gdb_curses.h".  */
 #include "readline/readline.h"
 
-int
+static int tui_getc (FILE *fp);
+
+static int
 key_is_start_sequence (int ch)
 {
   return (ch == 27);
-}
-
-int
-key_is_end_sequence (int ch)
-{
-  return (ch == 126);
-}
-
-int
-key_is_backspace (int ch)
-{
-  return (ch == 8);
 }
 
 /* Use definition from readline 4.3.  */
@@ -412,6 +402,21 @@ tui_mld_beep (const struct match_list_displayer *displayer)
   beep ();
 }
 
+/* A wrapper for wgetch that enters nonl mode.  We We normally want
+  curses' "nl" mode, but when reading from the user, we'd like to
+  differentiate between C-j and C-m, because some users bind these
+  keys differently in their .inputrc.  So, put curses into nonl mode
+  just when reading from the user.  See PR tui/20819.  */
+
+static int
+gdb_wgetch (WINDOW *win)
+{
+  nonl ();
+  int r = wgetch (win);
+  nl ();
+  return r;
+}
+
 /* Helper function for tui_mld_read_key.
    This temporarily replaces tui_getc for use during tab-completion
    match list display.  */
@@ -420,7 +425,7 @@ static int
 tui_mld_getc (FILE *fp)
 {
   WINDOW *w = TUI_CMD_WIN->generic.handle;
-  int c = wgetch (w);
+  int c = gdb_wgetch (w);
 
   return c;
 }
@@ -599,7 +604,7 @@ tui_initialize_io (void)
 
 /* Get a character from the command window.  This is called from the
    readline package.  */
-int
+static int
 tui_getc (FILE *fp)
 {
   int ch;
@@ -612,7 +617,7 @@ tui_getc (FILE *fp)
   tui_readline_output (0, 0);
 #endif
 
-  ch = wgetch (w);
+  ch = gdb_wgetch (w);
 
   /* The \n must be echoed because it will not be printed by
      readline.  */
@@ -659,7 +664,7 @@ tui_getc (FILE *fp)
       int ch_pending;
 
       nodelay (w, TRUE);
-      ch_pending = wgetch (w);
+      ch_pending = gdb_wgetch (w);
       nodelay (w, FALSE);
 
       /* If we have pending input following a start sequence, call the stdin

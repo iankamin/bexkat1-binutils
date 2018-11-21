@@ -1,6 +1,6 @@
 /* Definitions for symbol file management in GDB.
 
-   Copyright (C) 1992-2017 Free Software Foundation, Inc.
+   Copyright (C) 1992-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -27,6 +27,7 @@
 #include "progspace.h"
 #include "registry.h"
 #include "gdb_bfd.h"
+#include <vector>
 
 struct bcache;
 struct htab;
@@ -266,6 +267,12 @@ struct objfile_per_bfd_storage
      demangled names.  */
 
   minimal_symbol *msymbol_demangled_hash[MINIMAL_SYMBOL_HASH_SIZE] {};
+
+  /* All the different languages of symbols found in the demangled
+     hash table.  A flat/vector-based map is more efficient than a map
+     or hash table here, since this will only usually contain zero or
+     one entries.  */
+  std::vector<enum language> demangled_hash_languages;
 };
 
 /* Master structure for keeping track of each file from which
@@ -353,6 +360,11 @@ struct objfile
      will not change.  */
 
   struct psymbol_bcache *psymbol_cache;
+
+  /* Map symbol addresses to the partial symtab that defines the
+     object at that address.  */
+
+  std::vector<std::pair<CORE_ADDR, partial_symtab *>> psymbol_map;
 
   /* Vectors of all partial symbols read in from file.  The actual data
      is stored in the objfile_obstack.  */
@@ -539,18 +551,13 @@ DECLARE_REGISTRY(objfile);
 /* In normal use, the section map will be rebuilt by find_pc_section
    if objfiles have been added, removed or relocated since it was last
    called.  Calling inhibit_section_map_updates will inhibit this
-   behavior until resume_section_map_updates is called.  If you call
-   inhibit_section_map_updates you must ensure that every call to
-   find_pc_section in the inhibited region relates to a section that
-   is already in the section map and has not since been removed or
-   relocated.  */
-extern void inhibit_section_map_updates (struct program_space *pspace);
-
-/* Resume automatically rebuilding the section map as required.  */
-extern void resume_section_map_updates (struct program_space *pspace);
-
-/* Version of the above suitable for use as a cleanup.  */
-extern void resume_section_map_updates_cleanup (void *arg);
+   behavior until the returned scoped_restore object is destroyed.  If
+   you call inhibit_section_map_updates you must ensure that every
+   call to find_pc_section in the inhibited region relates to a
+   section that is already in the section map and has not since been
+   removed or relocated.  */
+extern scoped_restore_tmpl<int> inhibit_section_map_updates
+    (struct program_space *pspace);
 
 extern void default_iterate_over_objfiles_in_search_order
   (struct gdbarch *gdbarch,

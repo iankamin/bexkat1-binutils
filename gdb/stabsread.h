@@ -1,5 +1,5 @@
 /* Include file for stabs debugging format support functions.
-   Copyright (C) 1986-2017 Free Software Foundation, Inc.
+   Copyright (C) 1986-2018 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -17,6 +17,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 struct objfile;
+enum language;
 
 /* Definitions, prototypes, etc for stabs debugging format support
    functions.
@@ -29,6 +30,33 @@ struct objfile;
 #ifndef EXTERN
 #define	EXTERN extern
 #endif
+
+#define HASHSIZE 127		/* Size of things hashed via
+				   hashname().  */
+
+/* Compute a small integer hash code for the given name.  */
+
+extern int hashname (const char *name);
+
+/* Count symbols as they are processed, for error messages.  */
+
+EXTERN unsigned int symnum;
+
+#define next_symbol_text(objfile) (*next_symbol_text_func)(objfile)
+
+/* Function to invoke get the next symbol.  Return the symbol name.  */
+
+EXTERN const char *(*next_symbol_text_func) (struct objfile *);
+
+/* Global variable which, when set, indicates that we are processing a
+   .o file compiled with gcc */
+
+EXTERN unsigned char processing_gcc_compilation;
+
+/* Nonzero if within a function (so symbols should be local, if
+   nothing says specifically).  */
+
+EXTERN int within_function;
 
 /* Hash table of global symbols whose values are not known yet.
    They are chained thru the SYMBOL_VALUE_CHAIN, since we don't
@@ -169,7 +197,7 @@ extern struct partial_symtab *dbx_end_psymtab
 
 extern void process_one_symbol (int, int, CORE_ADDR, const char *,
 				const struct section_offsets *,
-				struct objfile *);
+				struct objfile *, enum language);
 
 extern void elfstab_build_psymtabs (struct objfile *objfile,
 				    asection *stabsect,
@@ -194,5 +222,11 @@ extern struct symbol *ref_search (int);
 extern void free_header_files (void);
 
 extern void init_header_files (void);
+
+/* Scan through all of the global symbols defined in the object file,
+   assigning values to the debugging symbols that need to be assigned
+   to.  Get these symbols from the minimal symbol table.  */
+
+extern void scan_file_globals (struct objfile *objfile);
 
 #undef EXTERN

@@ -1,11 +1,11 @@
-# Copyright (C) 2014-2017 Free Software Foundation, Inc.
+# Copyright (C) 2014-2018 Free Software Foundation, Inc.
 #
 # Copying and distribution of this file, with or without modification,
 # are permitted in any medium without royalty provided the copyright
 # notice and this notice are preserved.
 
 cat <<EOF
-/* Copyright (C) 2014-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2014-2018 Free Software Foundation, Inc.
 
    Copying and distribution of this script, with or without modification,
    are permitted in any medium without royalty provided the copyright
@@ -13,7 +13,10 @@ cat <<EOF
 
 OUTPUT_FORMAT("${OUTPUT_FORMAT}")
 OUTPUT_ARCH(${ARCH})
-${RELOCATING+ENTRY ("_start")}
+EOF
+
+test -n "${RELOCATING}" && cat <<EOF
+ENTRY ("_start")
 MEMORY
 {
 
@@ -28,6 +31,9 @@ MEMORY
 	ldata  : o =0x4000 ,l = 0x0200
 }
 
+ELF
+
+cat <<EOF
 SECTIONS
 {
 .init :
@@ -37,15 +43,15 @@ SECTIONS
 
 .text :
 	{
-	  *(.rodata)
-	  *(.text.*)
+	  ${RELOCATING+*(.rodata)}
+	  ${RELOCATING+*(.text.*)}
 	  *(.text)
 	  ${RELOCATING+ _etext = . ; }
 	} ${RELOCATING+ > introm}
 .data :
 	{
 	  *(.data)
-	  *(.data.*)
+	  ${RELOCATING+*(.data.*)}
 
 	  ${RELOCATING+ _edata = . ; }
 	} ${RELOCATING+ > dram}
@@ -54,7 +60,7 @@ SECTIONS
 	{
 	  ${RELOCATING+ _bss_start = . ;}
 	  *(.bss)
-	  *(COMMON)
+	  ${RELOCATING+*(COMMON)}
 	  ${RELOCATING+ _end = . ;  }
 	} ${RELOCATING+ > dram}
 

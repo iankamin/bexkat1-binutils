@@ -1,5 +1,5 @@
 /* coff object file format
-   Copyright (C) 1989-2017 Free Software Foundation, Inc.
+   Copyright (C) 1989-2018 Free Software Foundation, Inc.
 
    This file is part of GAS.
 
@@ -23,7 +23,6 @@
 #include "as.h"
 #include "safe-ctype.h"
 #include "subsegs.h"
-#include "struc-symbol.h"
 
 #ifdef TE_PE
 #include "coff/pe.h"
@@ -235,9 +234,6 @@ obj_coff_comm (int ignore ATTRIBUTE_UNUSED)
   s_comm_internal (ignore, obj_coff_common_parse);
 }
 #endif /* TE_PE */
-
-#define GET_FILENAME_STRING(X) \
-  ((char *) (&((X)->sy_symbol.ost_auxent->x_file.x_n.x_offset))[1])
 
 /* @@ Ick.  */
 static segT
